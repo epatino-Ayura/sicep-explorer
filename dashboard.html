@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SICEP · Dashboard energía</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{--bg:#fcfcfb;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e6e6e3;--accent:#2E6FB0;
+    --ok:#1E8E5A;--warn:#D98A1F;--crit:#C0392B;--info:#2E6FB0}
+  @media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+    --bg:#14171a;--surface:#1e2226;--ink:#eceef0;--muted:#9aa1a8;--line:#2c3237;--accent:#4A90D9;
+    --ok:#3FBF83;--warn:#E7A63D;--crit:#E15b4d;--info:#4A90D9}}
+  *{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+  header{background:var(--surface);border-bottom:1px solid var(--line);padding:12px 20px;display:flex;gap:16px;align-items:center}
+  header h1{font-size:16px;margin:0}nav a{margin-left:14px;color:var(--accent);text-decoration:none;font-weight:600}
+  .wrap{padding:20px;max-width:1300px;margin:0 auto}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:22px}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .kpi .n{font-size:24px;font-weight:800}.kpi .l{font-size:12px;color:var(--muted);text-transform:uppercase}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}@media(max-width:850px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .card h3{margin:0 0 4px;font-size:14px}.card p{margin:0 0 12px;color:var(--muted);font-size:12px}
+  .full{grid-column:1/-1}canvas{max-height:320px}
+  .banner{background:#fff7e6;border:1px solid #f0d9a0;color:#7a5a12;padding:8px 12px;border-radius:8px;font-size:12px;margin-bottom:16px}
+</style></head><body>
+<header><h1>SICEP · Dashboard de energía</h1>
+  <nav><a href="index.html">Productos</a><a href="dashboard.html">Dashboard</a></nav></header>
+<div class="wrap">
+  <div class="banner" id="banner" style="display:none"></div>
+  <div class="kpis" id="kpis"></div>
+  <div class="grid">
+    <div class="card full"><h3>Energía demandada vs adjudicada por año (GWh)</h3>
+      <p>Suma de todos los productos de las convocatorias de cada año.</p><canvas id="chEner"></canvas></div>
+    <div class="card"><h3>Precio promedio adjudicado por año ($/kWh)</h3>
+      <p>Ponderado por energía adjudicada.</p><canvas id="chPrec"></canvas></div>
+    <div class="card"><h3>Plazos de contrato</h3>
+      <p>Productos por duración de la obligación.</p><canvas id="chPlazo"></canvas></div>
+    <div class="card full"><h3>Compradores por energía adjudicada (GWh)</h3>
+      <p>Top 12 agentes.</p><canvas id="chAg"></canvas></div>
+  </div>
+</div>
+<script>
+const css=v=>getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+Chart.defaults.color=css('--muted');Chart.defaults.borderColor=css('--line');
+(async()=>{
+  const d=await (await fetch("data/resumen.json")).json(),k=d.kpis;
+  if(k.con_detalle<k.convocatorias){const b=document.getElementById('banner');b.style.display='block';
+    b.textContent=`Detalle por producto disponible en ${k.con_detalle} de ${k.convocatorias} convocatorias (la captura sigue en segundo plano; las cifras crecerán).`;}
+  document.getElementById('kpis').innerHTML=[
+    ['Convocatorias',k.convocatorias],['Productos',k.productos],['Abiertas hoy',k.abiertas],
+    ['GWh demandados',Number(k.energia_demandada_gwh||0).toLocaleString('es')],
+    ['GWh adjudicados',Number(k.energia_adjudicada_gwh||0).toLocaleString('es')],
+    ['Con detalle',k.con_detalle]
+  ].map(([l,v])=>`<div class="kpi"><div class="n">${v}</div><div class="l">${l}</div></div>`).join('');
+
+  new Chart(chEner,{type:'bar',data:{labels:d.energia_anio.map(r=>r.anio),datasets:[
+    {label:'Demandada',data:d.energia_anio.map(r=>r.demandada),backgroundColor:css('--info'),borderRadius:4},
+    {label:'Adjudicada',data:d.energia_anio.map(r=>r.adjudicada),backgroundColor:css('--ok'),borderRadius:4}]},
+    options:{responsive:true,scales:{y:{grid:{color:css('--line')}},x:{grid:{display:false}}},
+      plugins:{legend:{position:'bottom'}}}});
+
+  new Chart(chPrec,{type:'line',data:{labels:d.precio_anio.map(r=>r.anio),
+    datasets:[{label:'$/kWh',data:d.precio_anio.map(r=>r.precio),borderColor:css('--warn'),
+      backgroundColor:css('--warn'),borderWidth:2,tension:.25,pointRadius:4}]},
+    options:{responsive:true,scales:{y:{grid:{color:css('--line')},ticks:{callback:v=>'$'+v}},x:{grid:{display:false}}},
+      plugins:{legend:{display:false}}}});
+
+  new Chart(chPlazo,{type:'bar',data:{labels:d.plazos.map(r=>r.plazo),
+    datasets:[{label:'Productos',data:d.plazos.map(r=>r.n),backgroundColor:css('--accent'),borderRadius:4}]},
+    options:{indexAxis:'y',responsive:true,scales:{x:{grid:{color:css('--line')}},y:{grid:{display:false}}},
+      plugins:{legend:{display:false}}}});
+
+  new Chart(chAg,{type:'bar',data:{labels:d.top_agentes.map(r=>r.agente_comprador),
+    datasets:[{label:'GWh adjudicados',data:d.top_agentes.map(r=>r.gwh),backgroundColor:css('--ok'),borderRadius:4}]},
+    options:{indexAxis:'y',responsive:true,scales:{x:{grid:{color:css('--line')}},y:{grid:{display:false}}},
+      plugins:{legend:{display:false}}}});
+})();
+</script></body></html>

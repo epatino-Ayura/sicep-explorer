@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SICEP · Ficha</title>
+<style>
+  :root{--bg:#fcfcfb;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e6e6e3;--accent:#2E6FB0;--ok:#1E8E5A}
+  *{box-sizing:border-box}body{margin:0;font:14px/1.55 system-ui,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+  header{background:var(--surface);border-bottom:1px solid var(--line);padding:12px 20px}
+  header a{color:var(--accent);text-decoration:none;font-weight:600}
+  .wrap{padding:20px;max-width:1200px;margin:0 auto}
+  h1{font-size:22px;margin:.2em 0}
+  .meta{display:flex;flex-wrap:wrap;gap:22px;margin:12px 0 18px}
+  .meta .l{color:var(--muted);text-transform:uppercase;font-size:11px}.meta .v{font-weight:700;font-size:15px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .card .n{font-size:22px;font-weight:800}.card .l{font-size:12px;color:var(--muted)}
+  table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:20px}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}
+  th{background:#f4f4f2;font-size:11px;text-transform:uppercase;color:#41474e}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  h3{margin:18px 0 8px}
+  .file{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--surface);border:1px solid var(--line);border-radius:9px;margin-bottom:7px;text-decoration:none;color:var(--ink)}
+  .file:hover{border-color:var(--accent)}
+  .file .tag{font-size:11px;font-weight:700;color:#fff;background:var(--ok);border-radius:6px;padding:2px 7px}
+  .hint{color:var(--muted);font-size:12px;margin-bottom:8px}
+  .btn{display:inline-block;background:var(--accent);color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:600}
+</style></head><body>
+<header><a href="index.html">← Productos</a> &nbsp;·&nbsp; <a href="dashboard.html">Dashboard</a></header>
+<div class="wrap" id="app">Cargando…</div>
+<script>
+const cid=new URLSearchParams(location.search).get("c");
+const n=(v,d=2)=>v==null?"—":Number(v).toLocaleString("es",{minimumFractionDigits:d,maximumFractionDigits:d});
+const yr=s=>s?String(s).slice(0,4):"";
+const ddmmyyyy=s=>s?String(s).slice(0,10).split("-").reverse().join("/"):"";
+const isCurva=nm=>/energ|precio|cantidad|anexo\s*(no\.?\s*)?1|anexo\s*(no\.?\s*)?2/i.test(nm);
+function expUrl(c){
+  const parts=[c.convocatoria,c.agente_comprador||"",c.codigo_sic||"",
+    ddmmyyyy(c.inicio_suministro),ddmmyyyy(c.fin_suministro),
+    c.exclusivo_fncer?"true":"false", c.mercado||"Regulado"];
+  return "https://sicep.xm.com.co/public-announcements/electronic-file/"+parts.map(encodeURIComponent).join("/");
+}
+Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/productos.json").then(r=>r.json())])
+.then(([CV,PR])=>{
+  const c=CV.find(x=>x.convocatoria===cid);
+  if(!c){document.getElementById("app").innerHTML="No encontrada. <a href='index.html'>Volver</a>";return;}
+  const P=PR.filter(x=>x.convocatoria===cid && x.producto);
+  const meta=(l,v)=>`<div><div class="l">${l}</div><div class="v">${v??"—"}</div></div>`;
+  const exp=expUrl(c);
+  document.getElementById("app").innerHTML=`
+    <h1>${c.convocatoria}</h1>
+    <div class="meta">
+      ${meta("Estado",c.estado)}${meta("Comprador",c.agente_comprador)}${meta("Mercado",c.mercado)}
+      ${meta("FNCER",c.exclusivo_fncer?"Sí":"No")}
+      ${meta("Suministro",yr(c.inicio_suministro)+"–"+yr(c.fin_suministro))}
+      ${meta("Publicación",ddmmyyyy(c.fecha_publicacion))}
+    </div>
+    <div class="cards">
+      <div class="card"><div class="n">${c.n_productos??"—"}</div><div class="l">Productos</div></div>
+      <div class="card"><div class="n">${n(c.energia_demandada_gwh,0)}</div><div class="l">GWh demandados</div></div>
+      <div class="card"><div class="n">${n(c.energia_adjudicada_gwh,0)}</div><div class="l">GWh adjudicados</div></div>
+      <div class="card"><div class="n">${n(c.precio_prom_ponderado)}</div><div class="l">Precio prom. $/kWh</div></div>
+    </div>
+    <h3>Productos — energía por bloque y plazo</h3>
+    ${P.length?`<table><thead><tr><th>Producto</th><th>Demandada GWh</th><th>Adjudicada GWh</th>
+      <th>Precio $/kWh</th><th>Obligación</th><th>Años</th><th>Tipo</th><th>Ofertas r/a/rech</th></tr></thead>
+      <tbody>${P.map(p=>`<tr><td>${(p.producto||"").split("-").pop()}</td>
+        <td class="num">${n(p.energia_demandada_gwh)}</td><td class="num">${n(p.energia_adjudicada_gwh)}</td>
+        <td class="num">${n(p.precio_prom_adjudicado)}</td><td>${yr(p.inicio_obligacion)}–${yr(p.fin_obligacion)}</td>
+        <td class="num">${p.anios_contrato??"—"}</td><td>${p.tipo_contrato||"—"}</td>
+        <td class="num">${p.ofertas_recibidas??"—"}/${p.ofertas_adjudicadas??"—"}/${p.ofertas_rechazadas??"—"}</td></tr>`).join("")}</tbody></table>`
+      :'<div class="hint">Aún sin productos publicados (convocatoria recién abierta).</div>'}
+    <h3>Archivos del pliego (${c.archivos.length})</h3>
+    <div class="hint">Los archivos se descargan del sistema oficial de SICEP (requiere abrir el expediente):</div>
+    ${c.archivos.length? c.archivos.map(f=>`<div class="file">
+        ${isCurva(f.nombre)?'<span class="tag">CURVA</span>':''}<span>${f.nombre}</span>
+        ${f.etapa?`<span style="color:var(--muted);font-size:11px">(${f.etapa})</span>`:''}</div>`).join("")
+      : '<div class="hint">Sin archivos listados.</div>'}
+    <p style="margin-top:16px"><a class="btn" href="${exp}" target="_blank" rel="noopener">Abrir expediente oficial en SICEP ↗</a></p>
+  `;
+})
+.catch(e=>{document.getElementById("app").innerHTML="Error cargando datos.";});
+</script></body></html>

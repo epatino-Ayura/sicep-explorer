@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SICEP · Productos de energía</title>
+<style>
+  :root{--bg:#fcfcfb;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e6e6e3;--accent:#2E6FB0;
+    --ok:#1E8E5A;--warn:#9a6412;--crit:#C0392B;--info:#2E6FB0}
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+  header{background:var(--surface);border-bottom:1px solid var(--line);padding:12px 20px;display:flex;gap:16px;align-items:center;position:sticky;top:0;z-index:5;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0}header .sub{color:var(--muted);font-size:12px}
+  nav a{margin-left:14px;color:var(--accent);text-decoration:none;font-weight:600}
+  .wrap{padding:16px 20px;max-width:1500px;margin:0 auto}
+  .filtros{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:10px}
+  .f{display:flex;flex-direction:column;gap:3px}
+  .f label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+  input,select{padding:7px 9px;border:1px solid var(--line);border-radius:7px;font:inherit;background:var(--surface);min-width:120px}
+  input[type=search]{min-width:220px}
+  .chk{flex-direction:row;align-items:center;gap:6px}
+  button{padding:7px 14px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:7px;font:inherit;font-weight:600;cursor:pointer}
+  button.ghost{background:var(--surface);color:var(--accent)}
+  .count{color:var(--muted);margin:6px 2px}
+  table{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden;font-size:13px}
+  th,td{padding:7px 9px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{background:#f4f4f2;font-size:11px;text-transform:uppercase;color:#41474e;cursor:pointer}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  tbody tr:hover{background:#f7faff}
+  a.conv{color:var(--accent);text-decoration:none;font-weight:700}
+  .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600}
+  .st-adj{background:#e4f3ea;color:var(--ok)}.st-des{background:#fbeed7;color:var(--warn)}
+  .st-can{background:#fbe6e4;color:var(--crit)}.st-abi{background:#e3eefb;color:var(--info)}
+  .pag{display:flex;gap:8px;align-items:center;justify-content:center;margin:14px 0}
+</style></head>
+<body>
+<header><div><h1>SICEP · Productos de energía</h1><div class="sub">Datos públicos de sicep.xm.com.co · <span id="meta"></span></div></div>
+  <nav><a href="index.html">Productos</a><a href="dashboard.html">Dashboard</a></nav></header>
+<div class="wrap">
+  <div class="filtros">
+    <div class="f"><label>Buscar</label><input id="q" type="search" placeholder="convocatoria, agente, producto…"></div>
+    <div class="f"><label>Año</label><select id="anio"><option value="">Todos</option></select></div>
+    <div class="f"><label>Estado</label><select id="estado"><option value="">Todos</option></select></div>
+    <div class="f"><label>Agente comprador</label><select id="agente"><option value="">Todos</option></select></div>
+    <div class="f"><label>Mercado</label><select id="mercado"><option value="">Todos</option></select></div>
+    <div class="f chk"><input type="checkbox" id="adj"><label for="adj">Solo adjudicados</label></div>
+    <button onclick="render(1)">Filtrar</button><button class="ghost" onclick="limpiar()">Limpiar</button>
+  </div>
+  <div class="count" id="count">Cargando datos…</div>
+  <div style="overflow-x:auto"><table>
+    <thead><tr>
+      <th onclick="sort('convocatoria')">Convocatoria</th><th>Producto</th>
+      <th onclick="sort('anio')">Año</th><th>Estado</th><th>Comprador</th>
+      <th onclick="sort('energia_demandada_gwh')">Demandada GWh</th>
+      <th onclick="sort('energia_adjudicada_gwh')">Adjudicada GWh</th>
+      <th onclick="sort('precio_prom_adjudicado')">Precio $/kWh</th>
+      <th onclick="sort('anios_contrato')">Años</th><th>Suministro</th>
+      <th>Tipo contrato</th><th>Ofertas r/a</th>
+    </tr></thead><tbody id="tb"></tbody></table></div>
+  <div class="pag"><button class="ghost" onclick="mover(-1)">← Anterior</button>
+    <span id="pageinfo"></span><button class="ghost" onclick="mover(1)">Siguiente →</button></div>
+</div>
+<script>
+let DATA=[], view=[], page=1, order="anio", asc=false, rows=30;
+const stCls=s=>({"Cerrada y adjudicada":"st-adj","Cerrada y desierta":"st-des","Cancelada":"st-can","Abierta":"st-abi"}[s]||"");
+const n=(v,d=2)=>v==null?"—":Number(v).toLocaleString("es",{minimumFractionDigits:d,maximumFractionDigits:d});
+const yr=s=>s?String(s).slice(0,4):"";
+const $=id=>document.getElementById(id);
+function opts(sel,vals){vals.filter(v=>v!=null&&v!=="").sort().forEach(v=>sel.append(new Option(v,v)))}
+function filtrar(){
+  const q=$("q").value.toLowerCase(),a=$("anio").value,e=$("estado").value,ag=$("agente").value,m=$("mercado").value,adj=$("adj").checked;
+  return DATA.filter(r=>{
+    if(q&&!((r.convocatoria||"")+ (r.agente_comprador||"")+(r.producto||"")).toLowerCase().includes(q))return false;
+    if(a&&String(r.anio)!==a)return false;
+    if(e&&r.estado!==e)return false;
+    if(ag&&r.agente_comprador!==ag)return false;
+    if(m&&r.mercado!==m)return false;
+    if(adj&&r.energia_adjudicada_gwh==null)return false;
+    return true;});
+}
+function render(p){
+  page=p||page; view=filtrar();
+  view.sort((x,y)=>{let vx=x[order],vy=y[order];vx=vx==null?-Infinity:vx;vy=vy==null?-Infinity:vy;
+    if(typeof vx==="string")return asc?String(vx).localeCompare(vy):String(vy).localeCompare(vx);
+    return asc?vx-vy:vy-vx;});
+  $("count").textContent=`${view.length.toLocaleString("es")} productos`;
+  const off=(page-1)*rows, pg=view.slice(off,off+rows);
+  $("tb").innerHTML=pg.map(c=>`<tr>
+    <td><a class="conv" href="ficha.html?c=${encodeURIComponent(c.convocatoria)}">${c.convocatoria}</a></td>
+    <td>${(c.producto||"").split("-").pop()}</td><td>${c.anio??""}</td>
+    <td><span class="pill ${stCls(c.estado)}">${(c.estado||"").replace("Cerrada y ","")}</span></td>
+    <td>${c.agente_comprador??""}</td>
+    <td class="num">${n(c.energia_demandada_gwh)}</td><td class="num">${n(c.energia_adjudicada_gwh)}</td>
+    <td class="num">${n(c.precio_prom_adjudicado)}</td><td class="num">${c.anios_contrato??"—"}</td>
+    <td>${yr(c.inicio_obligacion)}–${yr(c.fin_obligacion)}</td>
+    <td>${c.tipo_contrato||"—"}</td>
+    <td class="num">${c.ofertas_recibidas??"—"}/${c.ofertas_adjudicadas??"—"}</td></tr>`).join("");
+  $("pageinfo").textContent=`Página ${page} de ${Math.max(1,Math.ceil(view.length/rows))}`;
+}
+function mover(d){const pg=Math.ceil(view.length/rows);page=Math.min(Math.max(1,page+d),pg||1);render(page)}
+function sort(c){if(order===c)asc=!asc;else{order=c;asc=false}render(1)}
+function limpiar(){$("q").value="";["anio","estado","agente","mercado"].forEach(i=>$(i).value="");$("adj").checked=false;render(1)}
+fetch("data/productos.json").then(r=>r.json()).then(d=>{DATA=d;
+  opts($("anio"),[...new Set(d.map(r=>r.anio))]);
+  opts($("estado"),[...new Set(d.map(r=>r.estado))]);
+  opts($("agente"),[...new Set(d.map(r=>r.agente_comprador))]);
+  opts($("mercado"),[...new Set(d.map(r=>r.mercado))]);
+  render(1);});
+fetch("data/meta.json").then(r=>r.json()).then(m=>{$("meta").textContent="actualizado "+(m.generado||"").slice(0,10)}).catch(()=>{});
+</script></body></html>
