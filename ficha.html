@@ -24,9 +24,23 @@
   .file .tag{font-size:11px;font-weight:700;color:#fff;background:var(--ok);border-radius:6px;padding:2px 7px}
   .hint{color:var(--muted);font-size:12px;margin-bottom:8px}
   .btn{display:inline-block;background:var(--accent);color:#fff;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:600}
+  .tabs{display:flex;gap:6px;margin:6px 0 16px;border-bottom:1px solid var(--line)}
+  .tabs button{background:none;border:0;padding:9px 14px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer;border-bottom:2px solid transparent}
+  .tabs button.on{color:var(--accent);border-bottom-color:var(--accent)}
+  .prods{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:14px}
+  .prod{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0;overflow-wrap:anywhere}
+  .prod h4{margin:0 0 8px}.curva{color:var(--accent)}
+  table.kv th{width:38%;text-transform:none;font-size:12px;background:none;color:var(--muted)}
+  .src{font-size:11px;color:var(--muted);text-decoration:none}.na{color:var(--muted);font-style:italic}
+  .ejec{background:var(--surface);border-left:4px solid var(--accent);padding:10px 14px;border-radius:6px}
+  .alerta{background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:8px 12px;margin-bottom:12px}
+  svg.perfil{width:100%;height:auto;color:var(--muted)}.ley{display:flex;flex-wrap:wrap;gap:12px;font-size:12px}
+  .ley i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
+  #tab-pliego,#tab-datos{overflow-wrap:anywhere}
 </style></head><body>
 <header><a href="index.html">← Productos</a> &nbsp;·&nbsp; <a href="dashboard.html">Dashboard</a></header>
 <div class="wrap" id="app">Cargando…</div>
+<script src="pliego.js"></script>
 <script>
 const cid=new URLSearchParams(location.search).get("c");
 const n=(v,d=2)=>v==null?"—":Number(v).toLocaleString("es",{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -54,6 +68,9 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
       ${meta("Suministro",yr(c.inicio_suministro)+"–"+yr(c.fin_suministro))}
       ${meta("Publicación",ddmmyyyy(c.fecha_publicacion))}
     </div>
+    <div class="tabs"><button class="on" data-t="datos">Datos SICEP</button><button data-t="pliego">Resumen del pliego</button></div>
+    <div id="tab-pliego" hidden></div>
+    <div id="tab-datos">
     <div class="cards">
       <div class="card"><div class="n">${c.n_productos??"—"}</div><div class="l">Productos</div></div>
       <div class="card"><div class="n">${n(c.energia_demandada_gwh,0)}</div><div class="l">GWh demandados</div></div>
@@ -76,7 +93,15 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
         ${f.etapa?`<span style="color:var(--muted);font-size:11px">(${f.etapa})</span>`:''}</div>`).join("")
       : '<div class="hint">Sin archivos listados.</div>'}
     <p style="margin-top:16px"><a class="btn" href="${exp}" target="_blank" rel="noopener">Abrir expediente oficial en SICEP ↗</a></p>
+    </div>
   `;
+  const tp=document.getElementById("tab-pliego"), td=document.getElementById("tab-datos");
+  document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+    document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));
+    tp.hidden=b.dataset.t!=="pliego"; td.hidden=b.dataset.t==="pliego";
+  });
+  fetch("data/pliegos/"+encodeURIComponent(cid)+".json").then(r=>r.ok?r.json():null).catch(()=>null)
+    .then(pq=>renderPliego(tp,pq,exp));
 })
 .catch(e=>{document.getElementById("app").innerHTML="Error cargando datos.";});
 </script></body></html>
