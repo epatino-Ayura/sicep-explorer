@@ -75,12 +75,21 @@
     </div>`;
   }
 
+  // Número de producto de un resumen: primer número de 1-2 cifras en `nombre`; si no, su posición (1-based).
+  // Mismo criterio que comun.numero_producto (Python).
+  function numProducto(p, pos) {
+    const m = /(?<!\d)(\d{1,2})(?!\d)/.exec((p && p.nombre) || "");
+    return m ? Number(m[1]) : pos;
+  }
+
   window.renderPliego = function (el, pq, exp) {
     if (!pq) { el.innerHTML = '<div class="hint">Pliego pendiente de descarga y resumen.</div>'; return; }
     const r = pq.resumen, c = pq.cantidades;
     const qp = (c && c.productos) || {};
     const rp = (r && r.productos) || [];
-    const nums = [...new Set([...Object.keys(qp).map(Number), ...rp.map((_, i) => i + 1)])].sort((a, b) => a - b);
+    const rmap = {};
+    rp.forEach((p, i) => { const n = numProducto(p, i + 1); if (!(n in rmap)) rmap[n] = p; });
+    const nums = [...new Set([...Object.keys(qp).map(Number), ...Object.keys(rmap).map(Number)])].sort((a, b) => a - b);
     const al = pq.alertas || [];
     const alertas = al.length ? `<div class="alerta"><b>Revisar:</b><ul>${al.map(a => `<li>${esc(a)}</li>`).join("")}</ul></div>` : "";
     const lista = (arr, exp) => arr && arr.length ? `<ul>${arr.map(d => `<li>${val(d, exp)}</li>`).join("")}</ul>` : '<span class="na">No indicado en el pliego</span>';
@@ -89,7 +98,7 @@
       ${r ? `<p class="ejec">${esc(r.resumen_ejecutivo)}</p>` : '<div class="hint">Condiciones pendientes de resumen. Se muestran las cantidades del anexo.</div>'}
       ${!c || !Object.keys(qp).length ? `<div class="hint">Cantidades no disponibles${c ? " (anexo " + esc(String(c.estado || "").replace("_", " ")) + ")" : ""}.</div>` : ""}
       <h3>Productos</h3>
-      <div class="prods">${nums.map(n => tarjetaProducto(n, qp[String(n)], rp[n - 1], exp, (c && c.archivos) || [])).join("") || '<div class="hint">Sin productos.</div>'}</div>
+      <div class="prods">${nums.map(n => tarjetaProducto(n, qp[String(n)], rmap[n], exp, (c && c.archivos) || [])).join("") || '<div class="hint">Sin productos.</div>'}</div>
       ${r ? `
       <h3>Precio</h3><table class="kv">${fila("Tope / reserva", r.precio?.tope_o_reserva, exp)}${fila("Moneda base", r.precio?.moneda_base, exp)}
         ${fila("Indexación · índice", r.precio?.indexacion?.indice, exp)}${fila("Indexación · periodicidad", r.precio?.indexacion?.periodicidad, exp)}${fila("Indexación · base", r.precio?.indexacion?.base, exp)}</table>
