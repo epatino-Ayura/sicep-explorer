@@ -75,10 +75,13 @@
     </div>`;
   }
 
-  // Número de producto de un resumen: primer número de 1-2 cifras en `nombre`; si no, su posición (1-based).
+  // Número de producto de un resumen: el que sigue a "producto"/"prod" en `nombre` ("Lote 1 - Producto 3" -> 3);
+  // si no, el primer número de 1-2 cifras ("Bloque 2 (2028)" -> 2); si no, su posición (1-based).
   // Mismo criterio que comun.numero_producto (Python).
   function numProducto(p, pos) {
-    const m = /(?<!\d)(\d{1,2})(?!\d)/.exec((p && p.nombre) || "");
+    const nombre = (p && p.nombre) || "";
+    const m = /\bprod(?:ucto)?\.?\s*(?:n[oº°]\.?\s*)?(\d{1,2})(?!\d)/i.exec(nombre)
+      || /(?<!\d)(\d{1,2})(?!\d)/.exec(nombre);
     return m ? Number(m[1]) : pos;
   }
 
