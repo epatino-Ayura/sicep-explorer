@@ -68,7 +68,7 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
       ${meta("Suministro",yr(c.inicio_suministro)+"–"+yr(c.fin_suministro))}
       ${meta("Publicación",ddmmyyyy(c.fecha_publicacion))}
     </div>
-    <div class="tabs"><button class="on" data-t="datos">Datos SICEP</button><button data-t="pliego">Resumen del pliego</button></div>
+    <div class="tabs" role="tablist"><button role="tab" aria-selected="true" class="on" data-t="datos">Datos SICEP</button><button role="tab" aria-selected="false" data-t="pliego">Resumen del pliego</button></div>
     <div id="tab-pliego" hidden></div>
     <div id="tab-datos">
     <div class="cards">
@@ -97,7 +97,7 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
   `;
   const tp=document.getElementById("tab-pliego"), td=document.getElementById("tab-datos");
   document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
-    document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x===b));
+    document.querySelectorAll(".tabs button").forEach(x=>{x.classList.toggle("on",x===b);x.setAttribute("aria-selected",x===b);});
     tp.hidden=b.dataset.t!=="pliego"; td.hidden=b.dataset.t==="pliego";
   });
   fetch("data/pliegos/"+encodeURIComponent(cid)+".json").then(r=>r.ok?r.json():null).catch(()=>null)
