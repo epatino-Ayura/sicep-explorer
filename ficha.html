@@ -2,6 +2,7 @@
 <html lang="es"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SICEP · Ficha</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
 <style>
   :root{--bg:#fcfcfb;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e6e6e3;--accent:#2E6FB0;--ok:#1E8E5A}
   *{box-sizing:border-box}body{margin:0;font:14px/1.55 system-ui,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg)}
@@ -41,6 +42,7 @@
 <header><a href="index.html">← Productos</a> &nbsp;·&nbsp; <a href="bolsa.html">Precio de bolsa</a></header>
 <div class="wrap" id="app">Cargando…</div>
 <script src="pliego.js"></script>
+<script src="tablero.js"></script>
 <script>
 const cid=new URLSearchParams(location.search).get("c");
 const n=(v,d=2)=>v==null?"—":Number(v).toLocaleString("es",{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -68,6 +70,7 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
       ${meta("Suministro",yr(c.inicio_suministro)+"–"+yr(c.fin_suministro))}
       ${meta("Publicación",ddmmyyyy(c.fecha_publicacion))}
     </div>
+    <div id="tablero"></div>
     <div class="tabs" role="tablist"><button role="tab" aria-selected="true" class="on" data-t="datos">Datos SICEP</button><button role="tab" aria-selected="false" data-t="pliego">Resumen del pliego</button></div>
     <div id="tab-pliego" hidden></div>
     <div id="tab-datos">
@@ -100,8 +103,11 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
     document.querySelectorAll(".tabs button").forEach(x=>{x.classList.toggle("on",x===b);x.setAttribute("aria-selected",x===b);});
     tp.hidden=b.dataset.t!=="pliego"; td.hidden=b.dataset.t==="pliego";
   });
-  fetch("data/pliegos/"+encodeURIComponent(cid)+".json").then(r=>r.ok?r.json():null).catch(()=>null)
-    .then(pq=>renderPliego(tp,pq,exp));
+  const get=u=>fetch(u).then(r=>r.ok?r.json():null).catch(()=>null);
+  Promise.all([get("data/pliegos/"+encodeURIComponent(cid)+".json"),get("data/bolsa_resumen.json")]).then(([pq,bolsa])=>{
+    renderPliego(tp,pq,exp);
+    try{renderTablero(document.getElementById("tablero"),{conv:c,productos:P,paquete:pq,bolsa});}catch(e){console.error(e);}
+  });
 })
 .catch(e=>{document.getElementById("app").innerHTML="Error cargando datos.";});
 </script></body></html>
