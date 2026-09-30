@@ -30,7 +30,8 @@
   .tb .gc{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 10px 6px;min-width:0}
   .tb .gc h4{margin:0 6px 0;font-size:14px}
   .tb .gc .sub{margin:0 6px 4px;font-size:12px;color:var(--muted)}
-  .tb .plot{width:100%;height:270px}
+  .tb .plot{width:100%;height:270px;overflow:hidden}
+  .tb .graficos,.tb .gc{overflow:hidden}
   .tb .aviso{margin:0 6px 8px;padding:26px 10px;text-align:center;color:var(--muted);font-size:13px;background:#f8f8f6;border-radius:8px}
   .tb .aviso.gen{text-align:left;padding:10px 14px;margin:0 0 14px;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12}
   `;
