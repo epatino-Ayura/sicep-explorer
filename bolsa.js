@@ -73,6 +73,7 @@
     $("kpi-ultimo-s").textContent = `${fechaLarga(u.f)} · ${TIPO[u.t] || u.t} · $/kWh promedio`;
     const sin = !r.total.n;
     $("vacio").style.display = sin ? "block" : "none";
+    $("vacio").textContent = "Sin datos para el filtro";
     $("kpi-prom").textContent = sin ? "—" : f1(prom(r.total));
     $("kpi-prom-s").textContent = sin ? "" : `${r.filas.length.toLocaleString("es")} días · ${r.total.n.toLocaleString("es")} valores`;
     const mm = (id, o) => { $("kpi-" + id).textContent = o ? f1(o.v) : "—"; $("kpi-" + id + "-s").textContent = o ? `${fechaLarga(o.f)} · ${hh(o.h)} (Hora ${o.h + 1})` : ""; };
@@ -105,14 +106,17 @@
 
   function graficoCalor(r) {
     const meses = [...r.calor.keys()].sort(), datos = [];
+    const horas = []; r.mk.forEach((on, h) => on && horas.push(h));
+    const parcial = horas.length < 24;
+    $("calor-sub").textContent = parcial ? "Solo horas de la franja seleccionada." : "";
     let mx = 0;
-    meses.forEach((m, i) => r.calor.get(m).forEach((a, h) => { if (a.n) { const v = +prom(a).toFixed(1); datos.push([i, h, v]); if (v > mx) mx = v; } }));
+    meses.forEach((m, i) => r.calor.get(m).forEach((a, h) => { if (a.n) { const v = +prom(a).toFixed(1); datos.push([i, horas.indexOf(h), v]); if (v > mx) mx = v; } }));
     charts.calor.setOption({
       animation: false,
       grid: {left: 8, right: 14, top: 10, bottom: 80, containLabel: true},
-      tooltip: {textStyle: {fontSize: FUENTE}, formatter: p => `${esc(meses[p.value[0]])} · ${hh(p.value[1])} (Hora ${p.value[1] + 1})<br><b>${f1(p.value[2])}</b>`},
+      tooltip: {textStyle: {fontSize: FUENTE}, formatter: p => `${esc(meses[p.value[0]])} · ${hh(horas[p.value[1]])} (Hora ${horas[p.value[1]] + 1})<br><b>${f1(p.value[2])}</b>`},
       xAxis: {type: "category", data: meses, axisLabel: tx, splitArea: {show: false}},
-      yAxis: {type: "category", data: Array.from({length: 24}, (_, h) => h + 1), axisLabel: {...tx, interval: 1}, inverse: true},
+      yAxis: {type: "category", data: horas.map(h => h + 1), axisLabel: {...tx, interval: horas.length > 12 ? 1 : 0}, inverse: true},
       visualMap: {min: 0, max: mx || 1, calculable: true, orient: "horizontal", left: "center", bottom: 4, itemWidth: 14, itemHeight: 140,
         textStyle: {fontSize: FUENTE}, inRange: {color: ["#eef5fb", "#9cc3e6", "#f0b35a", "#c2410c", "#7f1d1d"]}},
       series: [{type: "heatmap", data: datos, progressive: 0}]}, true);
@@ -140,7 +144,8 @@
 
   function actualizar() {
     const r = calcular();
-    kpis(r); graficoDiario(r); graficoCalor(r); graficoPerfil(r); tabla(r);
+    kpis(r); tabla(r);
+    if (charts.diario) { graficoDiario(r); graficoCalor(r); graficoPerfil(r); }
     $("kpi-ultimo").dataset.listo = "1";
   }
   const agendar = () => { clearTimeout(timer); timer = setTimeout(actualizar, 150); };
@@ -181,7 +186,10 @@
     for (const id of ["desde", "hasta", "tipo", "h1", "h2"]) $(id).addEventListener("change", agendar);
     $("franja").addEventListener("change", () => { $("pers").hidden = $("franja").value !== "pers"; agendar(); });
     $("btn-csv").addEventListener("click", csv);
-    charts = {diario: echarts.init($("g-diario"), null, {renderer: "canvas"}), calor: echarts.init($("g-calor"), null, {renderer: "canvas"}), perfil: echarts.init($("g-perfil"), null, {renderer: "canvas"})};
+    if (typeof window.echarts === "undefined") {
+      $("aviso").hidden = false;
+      $("aviso").textContent = "No se pudo cargar la librería de gráficos (ECharts). Revise su conexión.";
+    } else charts = {diario: echarts.init($("g-diario"), null, {renderer: "canvas"}), calor: echarts.init($("g-calor"), null, {renderer: "canvas"}), perfil: echarts.init($("g-perfil"), null, {renderer: "canvas"})};
     window.addEventListener("resize", () => Object.values(charts).forEach(c => c.resize()));
     actualizar();
   }
@@ -193,5 +201,5 @@
   }
 
   fetch("data/bolsa.json").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(iniciar)
-    .catch(e => { $("kpi-ultimo").textContent = "Error"; $("vacio").style.display = "block"; $("vacio").textContent = "No se pudo cargar data/bolsa.json (" + esc(e.message) + ")"; });
+    .catch(e => { $("kpi-ultimo").textContent = "Error"; $("vacio").style.display = "block"; $("vacio").textContent = "No se pudo cargar data/bolsa.json (" + e.message + ")"; });
 })();

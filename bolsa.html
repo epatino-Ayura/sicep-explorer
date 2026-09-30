@@ -16,7 +16,7 @@
   .filas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:14px 22px}
   .filas>div{min-width:0}
   .lbl{display:block;color:var(--muted);text-transform:uppercase;font-size:11px;margin-bottom:4px}
-  input[type=date]{width:145px}input,select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);max-width:100%}
+  input[type=date]{width:150px}input,select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);max-width:100%}
   .par{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .chips{display:flex;flex-wrap:wrap;gap:6px}
   .chips button{font:inherit;font-size:12px;padding:4px 10px;min-height:30px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);cursor:pointer}
@@ -38,6 +38,8 @@
   .top h3{margin:0}
   .btn{background:var(--accent);color:#fff;padding:8px 14px;border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
   #vacio{display:none;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:8px 12px;margin-bottom:16px}
+  @media(min-width:800px){.fechas{grid-column:span 2}.fechas .par{flex-wrap:nowrap}}
+  [hidden]{display:none!important}
   .sr{position:absolute;left:-9999px}
 </style></head><body>
 <header><div><h1>SICEP · Precio de bolsa</h1><div class="sub">Precio horario de bolsa nacional (XM) · <span id="meta"></span></div></div>
@@ -45,7 +47,7 @@
 <div class="wrap">
   <section class="panel" aria-label="Filtros">
     <div class="filas">
-      <div style="min-width:min(330px,100%)"><span class="lbl" id="l-fechas">Rango de fechas</span>
+      <div class="fechas"><span class="lbl" id="l-fechas">Rango de fechas</span>
         <div class="par" role="group" aria-labelledby="l-fechas">
           <input type="date" id="desde" aria-label="Fecha desde"><span aria-hidden="true">–</span><input type="date" id="hasta" aria-label="Fecha hasta"></div></div>
       <div><label class="lbl" for="tipo">Tipo de día</label>
@@ -56,9 +58,10 @@
       <div><span class="lbl" id="l-anios">Años (sin selección = todos)</span><div class="chips" id="anios" role="group" aria-labelledby="l-anios"></div></div>
       <div style="grid-column:1/-1"><span class="lbl" id="l-meses">Meses (sin selección = todos)</span><div class="chips" id="meses" role="group" aria-labelledby="l-meses"></div></div>
     </div>
-    <p class="hint">Hora 1 = 00:00–00:59 (convención XM). Precios en $/kWh. Los valores faltantes se ignoran en los promedios.</p>
+    <p class="hint">Hora 1 = 00:00–00:59 (convención XM). Precios en $/kWh. Los valores faltantes se ignoran en los promedios. El CSV omite horas sin dato.</p>
   </section>
   <div id="vacio" role="status">Sin datos para el filtro</div>
+  <div id="aviso" role="alert" hidden style="background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:8px 12px;margin-bottom:16px"></div>
   <div class="cards" aria-live="polite">
     <div class="card"><div class="l">Último día disponible</div><div class="n" id="kpi-ultimo"></div><div class="s" id="kpi-ultimo-s"></div></div>
     <div class="card"><div class="l">Promedio del filtro</div><div class="n" id="kpi-prom"></div><div class="s" id="kpi-prom-s"></div></div>
@@ -67,7 +70,7 @@
     <div class="card"><div class="l">Pico vs valle (periodo filtrado)</div><div class="n" id="kpi-pv"></div><div class="s" id="kpi-pv-s"></div></div>
   </div>
   <div class="chart"><h3>Promedio diario</h3><p class="hint">Línea: promedio del día. Banda: mínimo a máximo horario del día. Deslice el control inferior para acercar.</p><div id="g-diario" class="plot" role="img" aria-label="Promedio diario del precio de bolsa con banda mínimo-máximo"></div></div>
-  <div class="chart"><h3>Mapa de calor: hora × mes</h3><p class="hint">Promedio mensual por hora del día (1–24).</p><div id="g-calor" class="plot alto" role="img" aria-label="Mapa de calor del precio por hora y mes"></div></div>
+  <div class="chart"><h3>Mapa de calor: hora × mes</h3><p class="hint">Promedio mensual por hora del día (1–24). <span id="calor-sub"></span></p><div id="g-calor" class="plot alto" role="img" aria-label="Mapa de calor del precio por hora y mes"></div></div>
   <div class="chart"><h3>Perfil de 24 horas por año</h3><p class="hint">Promedio por hora, una línea por año.</p><div id="g-perfil" class="plot" role="img" aria-label="Perfil horario promedio por año"></div></div>
   <div class="top"><h3>Resumen mensual</h3><button class="btn" id="btn-csv" type="button">Descargar CSV</button></div>
   <div class="tabla"><table><thead><tr><th>Mes</th><th class="num">Promedio</th><th class="num">Mínimo</th><th class="num">Máximo</th></tr></thead><tbody id="tbody"></tbody></table></div>
