@@ -21,6 +21,8 @@
   .chips{display:flex;flex-wrap:wrap;gap:6px}
   .chips button{font:inherit;font-size:12px;padding:4px 10px;min-height:30px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);cursor:pointer}
   .chips button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chip-btn{font:inherit;font-size:12px;padding:4px 10px;min-height:30px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);cursor:pointer}
+  input:disabled{opacity:.5}
   .hint{color:var(--muted);font-size:12px;margin:8px 0 0}
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px;margin-bottom:16px}
   .card{padding:12px 14px;min-width:0}
@@ -49,7 +51,9 @@
     <div class="filas">
       <div class="fechas"><span class="lbl" id="l-fechas">Rango de fechas</span>
         <div class="par" role="group" aria-labelledby="l-fechas">
-          <input type="date" id="desde" aria-label="Fecha desde"><span aria-hidden="true">–</span><input type="date" id="hasta" aria-label="Fecha hasta"></div></div>
+          <input type="date" id="desde" aria-label="Fecha desde"><span aria-hidden="true">–</span><input type="date" id="hasta" aria-label="Fecha hasta">
+          <button type="button" id="btn-todo" class="chip-btn">Todo el histórico</button></div>
+        <p class="hint" id="hint-rango" hidden>Rango de fechas desactivado mientras hay años seleccionados</p></div>
       <div><label class="lbl" for="tipo">Tipo de día</label>
         <select id="tipo"><option value="todos">Todos</option><option value="laborable">Laborable</option><option value="sabado">Sábado</option><option value="domingo_festivo">Domingo / festivo</option></select></div>
       <div><label class="lbl" for="franja">Franja horaria</label>
@@ -71,7 +75,7 @@
   </div>
   <div class="chart"><h3>Promedio diario</h3><p class="hint">Línea: promedio del día. Banda: mínimo a máximo horario del día. Deslice el control inferior para acercar.</p><div id="g-diario" class="plot" role="img" aria-label="Promedio diario del precio de bolsa con banda mínimo-máximo"></div></div>
   <div class="chart"><h3>Mapa de calor: hora × mes</h3><p class="hint">Promedio mensual por hora del día (1–24). <span id="calor-sub"></span></p><div id="g-calor" class="plot alto" role="img" aria-label="Mapa de calor del precio por hora y mes"></div></div>
-  <div class="chart"><h3>Perfil de 24 horas por año</h3><p class="hint">Promedio por hora, una línea por año.</p><div id="g-perfil" class="plot" role="img" aria-label="Perfil horario promedio por año"></div></div>
+  <div class="chart"><h3>Perfil de 24 horas por año</h3><p class="hint">Promedio por hora, una línea por año. <span id="perfil-sub"></span></p><div id="g-perfil" class="plot" role="img" aria-label="Perfil horario promedio por año"></div></div>
   <div class="top"><h3>Resumen mensual</h3><button class="btn" id="btn-csv" type="button">Descargar CSV</button></div>
   <div class="tabla"><table><thead><tr><th>Mes</th><th class="num">Promedio</th><th class="num">Mínimo</th><th class="num">Máximo</th></tr></thead><tbody id="tbody"></tbody></table></div>
   <p class="hint">Fuente: XM, métrica PrecBolsNaci. Cálculos en el navegador sobre <code>data/bolsa.json</code>.</p>

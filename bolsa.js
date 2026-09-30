@@ -32,7 +32,9 @@
 
   function filtrar() {
     const d0 = $("desde").value, d1 = $("hasta").value, tp = $("tipo").value;
-    return dias.filter(x => x.p && (!d0 || x.f >= d0) && (!d1 || x.f <= d1) &&
+    // con años seleccionados el rango de fechas no restringe (se desactiva en la interfaz)
+    const usaRango = !est.anios.size;
+    return dias.filter(x => x.p && (!usaRango || ((!d0 || x.f >= d0) && (!d1 || x.f <= d1))) &&
       (!est.anios.size || est.anios.has(x.y)) && (!est.meses.size || est.meses.has(x.m)) &&
       (tp === "todos" || x.t === tp));
   }
@@ -46,21 +48,29 @@
     const dl = filtrar(), mk = mascara();
     const r = {total: acc(), dia: [], mes: new Map(), calor: new Map(), anio: new Map(), pico: acc(), valle: acc(),
                max: null, min: null, filas: dl, mk};
+    // Perfil por año: años elegidos, o los últimos 3 del histórico (independiente del rango de fechas)
+    const todos = [...new Set(dias.map(x => x.y))].sort();
+    const aniosPerfil = est.anios.size ? est.anios : new Set(todos.slice(-3));
     for (const x of dl) {
       const ad = acc(); let mesA = r.mes.get(x.ym);
       if (!mesA) r.mes.set(x.ym, mesA = acc());
       let cal = r.calor.get(x.ym); if (!cal) r.calor.set(x.ym, cal = Array.from({length: 24}, acc));
-      let an = r.anio.get(x.y); if (!an) r.anio.set(x.y, an = Array.from({length: 24}, acc));
       for (let h = 0; h < 24; h++) {
         const v = x.p[h]; if (v == null) continue;
         if (h >= 17 && h <= 21) suma(r.pico, v);
         if (h <= 7) suma(r.valle, v);
         if (!mk[h]) continue;
-        suma(ad, v); suma(r.total, v); suma(mesA, v); suma(cal[h], v); suma(an[h], v);
+        suma(ad, v); suma(r.total, v); suma(mesA, v); suma(cal[h], v);
         if (!r.max || v > r.max.v) r.max = {v, f: x.f, h};
         if (!r.min || v < r.min.v) r.min = {v, f: x.f, h};
       }
       if (ad.n) r.dia.push([x.f, +prom(ad).toFixed(2), ad.mn, ad.mx]);
+    }
+    const tp = $("tipo").value;
+    for (const x of dias) {
+      if (!x.p || !aniosPerfil.has(x.y) || (est.meses.size && !est.meses.has(x.m)) || (tp !== "todos" && x.t !== tp)) continue;
+      let an = r.anio.get(x.y); if (!an) r.anio.set(x.y, an = Array.from({length: 24}, acc));
+      for (let h = 0; h < 24; h++) if (mk[h] && x.p[h] != null) suma(an[h], x.p[h]);
     }
     return r;
   }
@@ -124,6 +134,7 @@
 
   function graficoPerfil(r) {
     const anios = [...r.anio.keys()].sort();
+    $("perfil-sub").textContent = est.anios.size ? "Años seleccionados." : "Últimos 3 años (seleccione años para cambiarlos).";
     charts.perfil.setOption({
       animation: false, color: PALETA,
       grid: {left: 8, right: 14, top: 44, bottom: 34, containLabel: true},
@@ -143,6 +154,9 @@
   }
 
   function actualizar() {
+    const conAnios = est.anios.size > 0;
+    $("desde").disabled = $("hasta").disabled = conAnios;
+    $("hint-rango").hidden = !conAnios;
     const r = calcular();
     kpis(r); tabla(r);
     if (charts.diario) { graficoDiario(r); graficoCalor(r); graficoPerfil(r); }
@@ -168,14 +182,17 @@
       const b = e.target.closest("button"); if (!b) return;
       const v = +b.dataset.v, on = !conjunto.has(v);
       on ? conjunto.add(v) : conjunto.delete(v);
-      b.setAttribute("aria-pressed", String(on)); agendar();
+      b.setAttribute("aria-pressed", String(on)); actualizar();
     });
   }
 
   function iniciar(d) {
     D = d; dias = indexar(d);
     $("meta").textContent = `${fechaLarga(d.desde)} a ${fechaLarga(d.hasta)}`;
-    const fin = new Date(d.hasta + "T00:00:00Z"); fin.setUTCFullYear(fin.getUTCFullYear() - 1); fin.setUTCDate(fin.getUTCDate() + 1);
+    // inicio por defecto: 12 meses atrás (+1 día) con el día ajustado al fin de mes (29-feb -> 28-feb)
+    const [hy, hm, hd] = d.hasta.split("-").map(Number);
+    const ultimo = new Date(Date.UTC(hy - 1, hm, 0)).getUTCDate();
+    const fin = new Date(Date.UTC(hy - 1, hm - 1, Math.min(hd, ultimo) + 1));
     $("desde").min = $("hasta").min = d.desde; $("desde").max = $("hasta").max = d.hasta;
     $("desde").value = fin.toISOString().slice(0, 10); $("hasta").value = d.hasta;
     const anios = [...new Set(dias.map(x => x.y))];
@@ -186,6 +203,7 @@
     for (const id of ["desde", "hasta", "tipo", "h1", "h2"]) $(id).addEventListener("change", agendar);
     $("franja").addEventListener("change", () => { $("pers").hidden = $("franja").value !== "pers"; agendar(); });
     $("btn-csv").addEventListener("click", csv);
+    $("btn-todo").addEventListener("click", () => { $("desde").value = d.desde; $("hasta").value = d.hasta; actualizar(); });
     if (typeof window.echarts === "undefined") {
       $("aviso").hidden = false;
       $("aviso").textContent = "No se pudo cargar la librería de gráficos (ECharts). Revise su conexión.";
@@ -200,6 +218,11 @@
     document.querySelectorAll("nav a").forEach(a => { a.href = rutas[a.getAttribute("href")] || a.href; });
   }
 
-  fetch("data/bolsa.json").then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(iniciar)
+  const vacio = msg => { $("kpi-ultimo").textContent = "—"; $("vacio").style.display = "block"; $("vacio").textContent = msg; };
+  const url = location.pathname.startsWith("/bolsa") ? "/data/bolsa.json" : "data/bolsa.json";
+  fetch(url).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); }).then(d => {
+      if (!d || !Array.isArray(d.fechas) || !d.fechas.length || !d.desde || !d.hasta) return vacio("Sin datos de precio de bolsa todavía");
+      iniciar(d);
+    })
     .catch(e => { $("kpi-ultimo").textContent = "Error"; $("vacio").style.display = "block"; $("vacio").textContent = "No se pudo cargar data/bolsa.json (" + e.message + ")"; });
 })();
