@@ -3,7 +3,8 @@
 (function () {
   "use strict";
   const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
-  const nf = (v, d) => v == null || isNaN(v) ? "—" : Number(v).toLocaleString("es", {minimumFractionDigits: d, maximumFractionDigits: d});
+  const nf = (v, d) => v == null || isNaN(v) ? "—" : Number(v).toLocaleString("es", {minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: "always"});
+  const fx = v => Number(v).toLocaleString("es", {maximumFractionDigits: 2, useGrouping: "always"});  // etiquetas de ejes
   const COL = {dem: "#B8C7D9", adj: "#2E6FB0", bolsa: "#C2410C", ink: "#1a1d21", muted: "#6b7280", line: "#e6e6e3"};
   const PALETA = ["#2E6FB0", "#1E8E5A", "#C2410C", "#7C3AED", "#B45309", "#0E7490", "#BE185D", "#64748B"];
   const FUENTE = 12;
@@ -12,7 +13,7 @@
   const anio = s => s ? String(s).slice(0, 4) : "";
   const pLabel = p => { const m = /(\d+)\s*$/.exec(p || ""); return m ? "P" + Number(m[1]) : String((p || "").split("-").pop()); };
   const pNum = p => { const m = /(\d+)\s*$/.exec(p || ""); return m ? String(Number(m[1])) : null; };
-  const compacto = v => Math.abs(v) >= 1e6 ? nf(v / 1e6, 1) + " M" : Math.abs(v) >= 1e3 ? nf(v / 1e3, 0) + " mil" : nf(v, 0);
+  const compacto = v => Math.abs(v) >= 1e6 ? nf(v / 1e6, 1) + " M" : fx(v);
 
   const CSS = `
   .tb{margin:4px 0 22px}
@@ -66,7 +67,7 @@
       ${k("GWh demandados", nf(dem, 0))}
       ${k("GWh adjudicados", nf(adj, 0), pct == null ? "" : nf(pct, 0) + " % de lo demandado")}
       ${k("Precio adjudicado", num(c.precio_prom_ponderado) == null ? "—" : "$ " + nf(c.precio_prom_ponderado, 2), "$/kWh, promedio ponderado")}
-      ${k("Productos", c.n_productos ?? P.length ?? "—")}
+      ${k("Productos", esc(c.n_productos ?? P.length ?? "—"))}
       ${k("Suministro", ini && fin ? (ini === fin ? ini : ini + "–" + fin) : "—", "", "t")}
       ${plazo}</div>`;
   }
@@ -81,7 +82,7 @@
     };
   }
   const eje = extra => Object.assign({axisLabel: {fontSize: FUENTE, color: COL.muted}, axisLine: {lineStyle: {color: COL.line}}}, extra);
-  const valor = (name, extra) => eje(Object.assign({type: "value", name, nameTextStyle: {fontSize: FUENTE, color: COL.muted, align: "left"},
+  const valor = (name, extra) => eje(Object.assign({type: "value", name, axisLabel: {fontSize: FUENTE, color: COL.muted, formatter: fx}, nameTextStyle: {fontSize: FUENTE, color: COL.muted, align: "left"},
     splitLine: {lineStyle: {color: "#efefec"}}}, extra));
 
   // ---- definiciones de gráficos: devuelven {opt} o {aviso} o null (no mostrar) ----
@@ -114,16 +115,27 @@
     return {opt: o};
   }
 
-  function gCurva(paquete, bolsa) {
+  function gCurva(paquete, bolsa, P) {
     const prods = paquete && paquete.cantidades && paquete.cantidades.productos;
-    const con = prods ? Object.values(prods).filter(p => p && p.perfil && Object.values(p.perfil).some(a => Array.isArray(a) && a.length === 24)) : [];
-    if (!con.length) return {aviso: "Sin perfil horario de demanda (anexo no reconocido)"};
+    const M = P.length;
+    const claveSicep = new Set(P.map(p => pNum(p.producto)));
+    const con = prods ? Object.entries(prods).filter(([k, p]) => (!M || claveSicep.has(String(k))) && p && p.perfil &&
+      Object.values(p.perfil).some(a => Array.isArray(a) && a.length === 24)).map(([, p]) => p) : [];
+    if (!con.length) return {aviso: prods && Object.keys(prods).length && M && !Object.keys(prods).some(k => claveSicep.has(String(k)))
+      ? "Los productos del anexo no coinciden con los de SICEP" : "Sin perfil horario de demanda (anexo no reconocido)"};
+    const valido = (p, t) => Array.isArray(p.perfil[t]) && p.perfil[t].length === 24;
+    let tipo = "ordinario";
+    if (!con.every(p => valido(p, tipo))) {
+      const cuenta = {};
+      con.forEach(p => Object.keys(p.perfil).forEach(t => { if (valido(p, t)) cuenta[t] = (cuenta[t] || 0) + 1; }));
+      tipo = Object.keys(cuenta).sort((x, y) => cuenta[y] - cuenta[x] || (x === "ordinario" ? -1 : y === "ordinario" ? 1 : 0))[0];
+    }
+    const usados = con.filter(p => valido(p, tipo));
     const dem = new Array(24).fill(0);
-    con.forEach(p => {
-      const a = (Array.isArray(p.perfil.ordinario) && p.perfil.ordinario.length === 24) ? p.perfil.ordinario
-        : Object.values(p.perfil).find(x => Array.isArray(x) && x.length === 24);
-      a.forEach((v, h) => { dem[h] += num(v) || 0; });
-    });
+    usados.forEach(p => p.perfil[tipo].forEach((v, h) => { dem[h] += num(v) || 0; }));
+    const N = usados.length, total = Math.max(M, N);
+    const DIA = {ordinario: "día ordinario", sabado: "sábado", festivo: "domingo/festivo", festivo_lunes: "lunes festivo"};
+    const sub = `Suma de ${N} de ${total} productos · ${DIA[tipo] || tipo}` + (N < total ? " (los demás sin curva en el anexo)" : "");
     const bp = bolsa && Array.isArray(bolsa.perfil_12m) && bolsa.perfil_12m.length === 24 ? bolsa.perfil_12m : null;
     const horas = Array.from({length: 24}, (_, i) => i + 1);
     const o = baseOpt();
@@ -147,7 +159,7 @@
       return `<b>Hora ${h}</b> (${hh(h - 1)}:00–${hh(h - 1)}:59)<br>` + ps.map(p =>
         `${p.marker}${esc(p.seriesName.replace(/ \(.*/, ""))}: <b>${p.value == null ? "—" : nf(p.value, p.seriesIndex ? 1 : 2)}</b> ${p.seriesIndex ? "$/kWh" : "MWh/h"}`).join("<br>");
     };
-    return {opt: o};
+    return {opt: o, sub};
   }
 
   function mesCercano(mensual, fecha) {
@@ -182,11 +194,19 @@
         lineStyle: {width: 0, opacity: 0}, itemStyle: {color: COL.bolsa}, tooltip: {valueFormatter: v => "$ " + nf(v, 2) + " /kWh"}});
     }
     o.legend.data = [serie.name];
-    return {opt: o, sub: pb != null ? "La línea es el promedio de bolsa del mes de cierre" + (mk !== String(c.fecha_cierre || "").slice(0, 7) ? " (mes con dato más cercano)" : "") : "Sin datos de bolsa para comparar"};
+    const usaCierre = !!c.fecha_cierre, fref = c.fecha_cierre || c.fecha_limite_oferta;
+    const base = `Solo productos con precio adjudicado (${ps.length} de ${P.length})`;
+    const linea = pb == null ? "sin datos de bolsa para comparar"
+      : `la línea es el promedio de bolsa del ${usaCierre ? "mes de cierre" : fref ? "mes límite de oferta" : "último mes con dato"}` + (fref && mk !== String(fref).slice(0, 7) ? " (mes con dato más cercano)" : "");
+    return {opt: o, sub: base + " · " + linea};
   }
 
   function renderTablero(el, d) {
     estilo();
+    if (typeof window.echarts === "undefined" && document.readyState !== "complete" && !el._tbEsperando) {
+      el._tbEsperando = true;  // ECharts se carga con defer: esperar a que termine la carga de la página
+      window.addEventListener("load", () => renderTablero(el, d), {once: true});
+    }
     const {conv: c, productos: P0, paquete, bolsa} = d || {};
     if (!c || !el) return;
     const P = (P0 || []).filter(p => p && p.producto);
@@ -195,7 +215,7 @@
     const defs = [
       ["Demanda por producto", "GWh demandados vs adjudicados (datos SICEP)", gDemanda(P)],
       ["MWh por año", "Energía por producto según el anexo de cantidades", gAnual(paquete)],
-      ["Curva horaria vs precio de bolsa", "Demanda promedio por hora y precio de bolsa de los últimos 12 meses", gCurva(paquete, bolsa)],
+      ["Curva horaria vs precio de bolsa", "Demanda promedio por hora y precio de bolsa de los últimos 12 meses", gCurva(paquete, bolsa, P)],
       ["Precio adjudicado vs bolsa", "", gPrecio(P, c, bolsa)]].filter(x => x[2]);
     const gr = defs.map(([t, s, r], i) => `<div class="gc"><h4>${esc(t)}</h4>${(r.sub || s) ? `<div class="sub">${esc(r.sub || s)}</div>` : ""}
       ${r.aviso ? `<div class="aviso">${esc(r.aviso)}</div>` : `<div class="plot" id="tb-g${i}" role="img" aria-label="${esc(t)}"></div>`}</div>`).join("");
