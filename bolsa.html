@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SICEP · Precio de bolsa</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  :root{--bg:#fcfcfb;--surface:#fff;--ink:#1a1d21;--muted:#6b7280;--line:#e6e6e3;--accent:#2E6FB0;--ok:#1E8E5A;--warn:#C2410C}
+  *{box-sizing:border-box}body{margin:0;font:14px/1.55 system-ui,Segoe UI,Roboto,sans-serif;color:var(--ink);background:var(--bg)}
+  header{background:var(--surface);border-bottom:1px solid var(--line);padding:12px 20px;display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  header h1{font-size:16px;margin:0}header .sub{color:var(--muted);font-size:12px}
+  nav a{margin-right:14px;color:var(--accent);text-decoration:none;font-weight:600}
+  nav a[aria-current=page]{border-bottom:2px solid var(--accent)}
+  .wrap{padding:20px;max-width:1200px;margin:0 auto}
+  .panel,.card,.chart{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+  .panel{padding:14px 16px;margin-bottom:16px}
+  .filas{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(230px,100%),1fr));gap:14px 22px}
+  .filas>div{min-width:0}
+  .lbl{display:block;color:var(--muted);text-transform:uppercase;font-size:11px;margin-bottom:4px}
+  input[type=date]{width:145px}input,select{font:inherit;padding:6px 8px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);max-width:100%}
+  .par{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .chips{display:flex;flex-wrap:wrap;gap:6px}
+  .chips button{font:inherit;font-size:12px;padding:4px 10px;min-height:30px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink);cursor:pointer}
+  .chips button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .hint{color:var(--muted);font-size:12px;margin:8px 0 0}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:12px;margin-bottom:16px}
+  .card{padding:12px 14px;min-width:0}
+  .card .l{font-size:12px;color:var(--muted)}.card .n{font-size:22px;font-weight:800;line-height:1.25}
+  .card .s{font-size:12px;color:var(--muted)}
+  .chart{padding:12px 8px 6px;margin-bottom:16px}
+  .chart h3{margin:0 8px 2px;font-size:15px}.chart .hint{margin:0 8px 4px}
+  .plot{width:100%;height:340px}.plot.alto{height:460px}
+  .tabla{max-height:380px;overflow:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface)}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}
+  th{background:#f4f4f2;font-size:11px;text-transform:uppercase;color:#41474e;position:sticky;top:0}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .top{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 8px}
+  .top h3{margin:0}
+  .btn{background:var(--accent);color:#fff;padding:8px 14px;border:0;border-radius:8px;font:inherit;font-weight:600;cursor:pointer}
+  #vacio{display:none;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:8px 12px;margin-bottom:16px}
+  .sr{position:absolute;left:-9999px}
+</style></head><body>
+<header><div><h1>SICEP · Precio de bolsa</h1><div class="sub">Precio horario de bolsa nacional (XM) · <span id="meta"></span></div></div>
+  <nav aria-label="Secciones"><a href="index.html">Productos</a><a href="dashboard.html">Dashboard</a><a href="bolsa.html" aria-current="page">Precio de bolsa</a></nav></header>
+<div class="wrap">
+  <section class="panel" aria-label="Filtros">
+    <div class="filas">
+      <div style="min-width:min(330px,100%)"><span class="lbl" id="l-fechas">Rango de fechas</span>
+        <div class="par" role="group" aria-labelledby="l-fechas">
+          <input type="date" id="desde" aria-label="Fecha desde"><span aria-hidden="true">–</span><input type="date" id="hasta" aria-label="Fecha hasta"></div></div>
+      <div><label class="lbl" for="tipo">Tipo de día</label>
+        <select id="tipo"><option value="todos">Todos</option><option value="laborable">Laborable</option><option value="sabado">Sábado</option><option value="domingo_festivo">Domingo / festivo</option></select></div>
+      <div><label class="lbl" for="franja">Franja horaria</label>
+        <div class="par"><select id="franja"><option value="todas">Todas las horas</option><option value="pico">Pico H18–H22 (17:00–21:59)</option><option value="valle">Valle H1–H8 (00:00–07:59)</option><option value="pers">Personalizada</option></select>
+          <span id="pers" class="par" hidden><select id="h1" aria-label="Hora inicial"></select><span aria-hidden="true">a</span><select id="h2" aria-label="Hora final"></select></span></div></div>
+      <div><span class="lbl" id="l-anios">Años (sin selección = todos)</span><div class="chips" id="anios" role="group" aria-labelledby="l-anios"></div></div>
+      <div style="grid-column:1/-1"><span class="lbl" id="l-meses">Meses (sin selección = todos)</span><div class="chips" id="meses" role="group" aria-labelledby="l-meses"></div></div>
+    </div>
+    <p class="hint">Hora 1 = 00:00–00:59 (convención XM). Precios en $/kWh. Los valores faltantes se ignoran en los promedios.</p>
+  </section>
+  <div id="vacio" role="status">Sin datos para el filtro</div>
+  <div class="cards" aria-live="polite">
+    <div class="card"><div class="l">Último día disponible</div><div class="n" id="kpi-ultimo"></div><div class="s" id="kpi-ultimo-s"></div></div>
+    <div class="card"><div class="l">Promedio del filtro</div><div class="n" id="kpi-prom"></div><div class="s" id="kpi-prom-s"></div></div>
+    <div class="card"><div class="l">Máximo horario</div><div class="n" id="kpi-max"></div><div class="s" id="kpi-max-s"></div></div>
+    <div class="card"><div class="l">Mínimo horario</div><div class="n" id="kpi-min"></div><div class="s" id="kpi-min-s"></div></div>
+    <div class="card"><div class="l">Pico vs valle (periodo filtrado)</div><div class="n" id="kpi-pv"></div><div class="s" id="kpi-pv-s"></div></div>
+  </div>
+  <div class="chart"><h3>Promedio diario</h3><p class="hint">Línea: promedio del día. Banda: mínimo a máximo horario del día. Deslice el control inferior para acercar.</p><div id="g-diario" class="plot" role="img" aria-label="Promedio diario del precio de bolsa con banda mínimo-máximo"></div></div>
+  <div class="chart"><h3>Mapa de calor: hora × mes</h3><p class="hint">Promedio mensual por hora del día (1–24).</p><div id="g-calor" class="plot alto" role="img" aria-label="Mapa de calor del precio por hora y mes"></div></div>
+  <div class="chart"><h3>Perfil de 24 horas por año</h3><p class="hint">Promedio por hora, una línea por año.</p><div id="g-perfil" class="plot" role="img" aria-label="Perfil horario promedio por año"></div></div>
+  <div class="top"><h3>Resumen mensual</h3><button class="btn" id="btn-csv" type="button">Descargar CSV</button></div>
+  <div class="tabla"><table><thead><tr><th>Mes</th><th class="num">Promedio</th><th class="num">Mínimo</th><th class="num">Máximo</th></tr></thead><tbody id="tbody"></tbody></table></div>
+  <p class="hint">Fuente: XM, métrica PrecBolsNaci. Cálculos en el navegador sobre <code>data/bolsa.json</code>.</p>
+</div>
+<script src="bolsa.js"></script>
+</body></html>
