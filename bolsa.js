@@ -214,7 +214,7 @@
 
   // En la app local la página vive en /bolsa: los enlaces del encabezado apuntan a las rutas de la app.
   if (location.pathname.replace(/\/$/, "") === "/bolsa") {
-    const rutas = {"index.html": "/", "dashboard.html": "/dashboard", "bolsa.html": "/bolsa"};
+    const rutas = {"index.html": "/", "bolsa.html": "/bolsa"};
     document.querySelectorAll("nav a").forEach(a => { a.href = rutas[a.getAttribute("href")] || a.href; });
   }
 
