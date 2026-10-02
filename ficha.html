@@ -66,9 +66,8 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
   document.getElementById("app").innerHTML=`
     <h1>${c.convocatoria}</h1>
     <div class="meta">
-      ${meta("Estado",c.estado)}${meta("Comprador",c.agente_comprador)}${meta("Mercado",c.mercado)}
+      ${meta("Mercado",c.mercado)}
       ${meta("FNCER",c.exclusivo_fncer?"Sí":"No")}
-      ${meta("Suministro",yr(c.inicio_suministro)+"–"+yr(c.fin_suministro))}
       ${meta("Publicación",ddmmyyyy(c.fecha_publicacion))}
     </div>
     <div id="tablero"></div>
