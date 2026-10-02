@@ -44,6 +44,7 @@
 <script src="pliego.js"></script>
 <script src="tablero.js"></script>
 <script>
+const escH=t=>String(t??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const cid=new URLSearchParams(location.search).get("c");
 const n=(v,d=2)=>v==null?"—":Number(v).toLocaleString("es",{minimumFractionDigits:d,maximumFractionDigits:d});
 const yr=s=>s?String(s).slice(0,4):"";
@@ -90,10 +91,14 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
         <td class="num">${p.ofertas_recibidas??"—"}/${p.ofertas_adjudicadas??"—"}/${p.ofertas_rechazadas??"—"}</td></tr>`).join("")}</tbody></table>`
       :'<div class="hint">Aún sin productos publicados (convocatoria recién abierta).</div>'}
     <h3>Archivos del pliego (${c.archivos.length})</h3>
-    <div class="hint">Los archivos se descargan del sistema oficial de SICEP (requiere abrir el expediente):</div>
-    ${c.archivos.length? c.archivos.map(f=>`<div class="file">
-        ${isCurva(f.nombre)?'<span class="tag">CURVA</span>':''}<span>${f.nombre}</span>
-        ${f.etapa?`<span style="color:var(--muted);font-size:11px">(${f.etapa})</span>`:''}</div>`).join("")
+    <div class="hint">Copia de los archivos publicados en SICEP. Clic para abrir o descargar.</div>
+    ${c.archivos.length? c.archivos.map(f=>{
+        const inner=`${isCurva(f.nombre)?'<span class="tag">CURVA</span>':''}<span>${escH(f.nombre)}</span>
+        ${f.etapa?`<span style="color:var(--muted);font-size:11px">(${escH(f.etapa)})</span>`:''}`;
+        return f.publicado&&f.url
+          ?`<a class="file" href="${escH(f.url)}" target="_blank" rel="noopener" download>${inner}</a>`
+          :`<div class="file">${inner}<span style="color:var(--muted);font-size:11px">(no disponible)</span></div>`;
+      }).join("")
       : '<div class="hint">Sin archivos listados.</div>'}
     <p style="margin-top:16px"><a class="btn" href="${exp}" target="_blank" rel="noopener">Abrir expediente oficial en SICEP ↗</a></p>
     </div>
