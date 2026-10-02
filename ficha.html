@@ -91,7 +91,7 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
         <td class="num">${p.ofertas_recibidas??"—"}/${p.ofertas_adjudicadas??"—"}/${p.ofertas_rechazadas??"—"}</td></tr>`).join("")}</tbody></table>`
       :'<div class="hint">Aún sin productos publicados (convocatoria recién abierta).</div>'}
     <h3>Archivos del pliego (${c.archivos.length})</h3>
-    <div class="hint">Copia de los archivos publicados en SICEP. Clic para abrir o descargar.</div>
+    <div class="hint">Copia de los archivos publicados en SICEP. Clic para descargar.</div>
     ${c.archivos.length? c.archivos.map(f=>{
         const inner=`${isCurva(f.nombre)?'<span class="tag">CURVA</span>':''}<span>${escH(f.nombre)}</span>
         ${f.etapa?`<span style="color:var(--muted);font-size:11px">(${escH(f.etapa)})</span>`:''}`;
