@@ -39,6 +39,10 @@
   .tb .filtro .fl{font-size:12px;color:var(--muted);margin-right:4px}
   .tb .filtro button{border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:999px;padding:4px 12px;font:inherit;font-size:13px;cursor:pointer}
   .tb .filtro button[aria-pressed="true"]{background:#2E6FB0;border-color:#2E6FB0;color:#fff}
+  .tb .filtro select{border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:8px;padding:3px 6px;font:inherit;font-size:13px}
+  .tb .filtro .sep{width:1px;height:20px;background:var(--line);margin:0 4px}
+  .tb .filtro .cargando{font-size:12px;color:var(--muted)}
+  .tb .filtro .err{font-size:12px;color:#b3261e}
   .tb .aviso.gen{text-align:left;padding:10px 14px;margin:0 0 14px;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12}
   `;
 
@@ -130,7 +134,7 @@
     return {opt: o};
   }
 
-  function gCurva(paquete, bolsa, P) {
+  function gCurva(paquete, bolsa, P, pers) {
     const prods = paquete && paquete.cantidades && paquete.cantidades.productos;
     const M = P.length;
     const claveSicep = new Set(P.map(p => pNum(p.producto)));
@@ -151,7 +155,7 @@
     const N = usados.length, total = Math.max(M, N);
     const DIA = {ordinario: "día ordinario", sabado: "sábado", festivo: "domingo/festivo", festivo_lunes: "lunes festivo"};
     const sub = `Suma de ${N} de ${total} productos · ${DIA[tipo] || tipo}` + (N < total ? " (los demás sin curva en el anexo)" : "");
-    const bp = bolsa && Array.isArray(bolsa.perfil_12m) && bolsa.perfil_12m.length === 24 ? bolsa.perfil_12m : null;
+    const bp = !pers && bolsa && Array.isArray(bolsa.perfil_12m) && bolsa.perfil_12m.length === 24 ? bolsa.perfil_12m : null;
     const horas = Array.from({length: 24}, (_, i) => i + 1);
     const o = baseOpt();
     o.grid.right = bp ? 8 : 14;
@@ -168,13 +172,22 @@
       o.series.push({name: "Bolsa 12 meses ($/kWh)", type: "line", yAxisIndex: 1, data: bp, showSymbol: false,
         lineStyle: {width: 2, color: COL.bolsa, type: "dashed"}, itemStyle: {color: COL.bolsa}});
     }
+    if (pers && pers.length) {
+      o.yAxis.push(valor("$/kWh", {position: "right", splitLine: {show: false}, nameTextStyle: {fontSize: FUENTE, color: COL.bolsa, align: "right"},
+        axisLabel: {fontSize: FUENTE, color: COL.bolsa, formatter: v => nf(v, 0)}}));
+      pers.forEach((q, i) => o.series.push({name: q.nombre.replace(/^Bolsa /, "Bolsa ").replace("últimos 12 meses", "12 meses"), type: "line", yAxisIndex: 1, showSymbol: false,
+        data: (q.est.perfil[tipo] || q.est.perfil.ordinario).map(v => v == null ? null : +v.toFixed(2)),
+        lineStyle: {width: 2, color: BOLSA_COL[i % BOLSA_COL.length], type: "dashed"}, itemStyle: {color: BOLSA_COL[i % BOLSA_COL.length]}}));
+      o.grid.right = 8;
+      o.legend.type = "scroll";
+    }
     o.tooltip.axisPointer = {type: "line"};
     o.tooltip.formatter = ps => {
       const h = +ps[0].axisValue, hh = x => String(x).padStart(2, "0");
       return `<b>Hora ${h}</b> (${hh(h - 1)}:00–${hh(h - 1)}:59)<br>` + ps.map(p =>
         `${p.marker}${esc(p.seriesName.replace(/ \(.*/, ""))}: <b>${p.value == null ? "—" : nf(p.value, p.seriesIndex ? 1 : 2)}</b> ${p.seriesIndex ? "$/kWh" : "MWh/h"}`).join("<br>");
     };
-    return {opt: o, sub};
+    return {opt: o, sub: sub + (pers && pers.length ? ` · bolsa del mismo tipo de día` : "")};
   }
 
   function mesCercano(mensual, fecha) {
@@ -187,7 +200,7 @@
     return ks.reduce((b, k) => Math.abs(idx(k) - obj) < Math.abs(idx(b) - obj) ? k : b);
   }
 
-  function gPrecio(P, c, bolsa) {
+  function gPrecio(P, c, bolsa, pers) {
     const ps = P.filter(p => precioOk(p) != null);
     if (!ps.length) return P.some(p => num(p.energia_adjudicada_gwh) != null) ? {aviso: "Ningún producto seleccionado tiene precio adjudicado"} : null;
     const mk = bolsa && bolsa.mensual ? mesCercano(bolsa.mensual, c.fecha_cierre || c.fecha_limite_oferta) : null;
@@ -198,6 +211,25 @@
     o.tooltip.valueFormatter = v => v == null ? "—" : "$ " + nf(v, 2) + " /kWh";
     const serie = {name: "Precio adjudicado", type: "bar", barMaxWidth: 40, itemStyle: {color: COL.adj}, data: ps.map(precioOk)};
     o.series = [serie];
+    if (pers && pers.length) {
+      serie.markLine = {silent: true, symbol: "none", data: pers.filter(q => q.est.media != null).map((q, i) => ({yAxis: +q.est.media.toFixed(2),
+        lineStyle: {color: BOLSA_COL[i % BOLSA_COL.length], type: "dashed", width: 2},
+        label: {fontSize: FUENTE, color: BOLSA_COL[i % BOLSA_COL.length], position: "insideEndTop", formatter: `${q.nombre.replace(/^Bolsa /, "")}: $ ${nf(q.est.media, 0)}`}}))};
+      pers.forEach((q, i) => o.series.push({name: q.nombre, type: "line", data: ps.map(() => q.est.media), showSymbol: false,
+        lineStyle: {width: 0, opacity: 0}, itemStyle: {color: BOLSA_COL[i % BOLSA_COL.length]}}));
+      o.legend.type = "scroll";
+      o.tooltip.formatter = xs => {
+        const pa = xs[0].data, h = [`<b>${esc(xs[0].axisValue)}</b>: precio adjudicado <b>$ ${nf(pa, 2)}</b> /kWh`];
+        pers.forEach((q, i) => {
+          if (q.est.media == null) return;
+          const d = pa - q.est.media, pc = d / q.est.media * 100;
+          h.push(`<span style="color:${BOLSA_COL[i % BOLSA_COL.length]}">●</span> ${esc(q.nombre)}: $ ${nf(q.est.media, 2)} · adjudicado ${d >= 0 ? "+" : "−"}$ ${nf(Math.abs(d), 2)} (${d >= 0 ? "+" : "−"}${nf(Math.abs(pc), 1)} %)`);
+        });
+        return h.join("<br>");
+      };
+      o.legend.data = [serie.name, ...pers.map(q => q.nombre)];
+      return {opt: o, sub: `Solo productos con precio adjudicado (${ps.length} de ${P.length}) · líneas: promedio de bolsa de cada periodo elegido`};
+    }
     if (pb != null) {
       const [y, m] = mk.split("-");
       const et = `Bolsa ${MESES[+m - 1]} ${y}: $ ${nf(pb, 0)}`;
@@ -216,16 +248,70 @@
     return {opt: o, sub: base + " · " + linea};
   }
 
+  // ---- Sensibilidad con el precio de bolsa: periodos elegidos por el usuario ----
+  // Fichas: "cierre" (mes de cierre), "12m" (últimos 12 meses), "AAAA" (año), "AAAA-MM:AAAA-MM" (rango de meses).
+  const BOLSA_COL = ["#C2410C", "#7C3AED", "#0E7490", "#BE185D", "#B45309", "#15803D", "#64748B", "#1D4ED8"];
+  const TIPO_BOLSA = {laborable: "ordinario", sabado: "sabado", domingo_festivo: "festivo"};
+  const finMes = ym => { const [y, m] = ym.split("-").map(Number); return `${ym}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, "0")}`; };
+  const mesTxt = ym => { const [y, m] = ym.split("-"); return `${MESES[+m - 1]} ${y}`; };
+
+  function periodo(tok, c, res) {
+    const hasta = res.hasta || "";
+    if (tok === "cierre") {
+      const mk = res.mensual ? mesCercano(res.mensual, c.fecha_cierre || c.fecha_limite_oferta) : null;
+      return mk ? {tok, nombre: `Bolsa ${mesTxt(mk)}`, desde: mk + "-01", hasta: finMes(mk)} : null;
+    }
+    if (tok === "12m") {
+      if (!hasta) return null;
+      const d = new Date(hasta + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - 364);
+      return {tok, nombre: "Bolsa últimos 12 meses", desde: d.toISOString().slice(0, 10), hasta};
+    }
+    if (/^\d{4}$/.test(tok)) return {tok, nombre: `Bolsa ${tok}` + (hasta.slice(0, 4) === tok ? ` (a ${mesTxt(hasta.slice(0, 7))})` : ""), desde: tok + "-01-01", hasta: tok + "-12-31"};
+    const m = /^(\d{4}-\d{2}):(\d{4}-\d{2})$/.exec(tok);
+    if (m && m[1] <= m[2]) return {tok, nombre: `Bolsa ${mesTxt(m[1])} – ${mesTxt(m[2])}`, desde: m[1] + "-01", hasta: finMes(m[2])};
+    return null;
+  }
+
+  // Promedio de todas las horas y perfil horario por tipo de día ($/kWh) de un periodo, desde bolsa.json.
+  function estadistica(B, desde, hasta) {
+    const acc = {ordinario: [], sabado: [], festivo: []};
+    for (const t in acc) for (let h = 0; h < 24; h++) acc[t].push([0, 0]);
+    let s = 0, n = 0, dias = 0;
+    for (let i = 0; i < B.fechas.length; i++) {
+      const f = B.fechas[i];
+      if (f < desde || f > hasta) continue;
+      dias++;
+      const t = TIPO_BOLSA[B.tipo[i]] || "ordinario", fila = B.p[i] || [];
+      for (let h = 0; h < 24; h++) { const v = fila[h]; if (v != null && isFinite(v)) { s += +v; n++; acc[t][h][0] += +v; acc[t][h][1]++; } }
+    }
+    const perfil = {};
+    for (const t in acc) perfil[t] = acc[t].map(([x, k]) => (k ? x / k : null));
+    perfil.festivo_lunes = perfil.festivo;
+    return {media: n ? s / n : null, perfil, dias};
+  }
+
+  const cacheBolsa = {};
+  function cargarBolsa(base) {
+    if (!cacheBolsa[base]) cacheBolsa[base] = fetch(base + "bolsa.json").then(r => { if (!r.ok) throw new Error("bolsa.json " + r.status); return r.json(); })
+      .catch(e => { delete cacheBolsa[base]; throw e; });
+    return cacheBolsa[base];
+  }
+
+  function bolsaDeUrl() {
+    try { const v = new URLSearchParams(location.search).get("b"); return v ? v.split(",").filter(Boolean) : []; } catch (e) { return []; }
+  }
+
   // Selección de productos en el enlace (?p=1,3) para compartir la vista filtrada.
   function selDeUrl() {
     try { const v = new URLSearchParams(location.search).get("p"); return new Set(v ? v.split(",").map(x => String(Number(x))).filter(x => x !== "NaN") : []); }
     catch (e) { return new Set(); }
   }
-  function selAUrl(s) {
+  function selAUrl(s, clave = "p", valores) {
     try {
       const u = new URL(location.href);
-      if (s.size) u.searchParams.set("p", [...s].sort((a, b) => a - b).join(",")); else u.searchParams.delete("p");
-      history.replaceState(history.state, "", u.toString().replace(/%2C/g, ","));
+      const v = valores || [...s].sort((a, b) => a - b);
+      if (v.length) u.searchParams.set(clave, v.join(",")); else u.searchParams.delete(clave);
+      history.replaceState(history.state, "", u.toString().replace(/%2C/g, ",").replace(/%3A/g, ":"));
     } catch (e) { /* sin historial: el filtro sigue funcionando en la página */ }
   }
 
@@ -248,7 +334,41 @@
     const P = filtrando ? Ptodos.filter(p => sel.has(pNum(p.producto))) : Ptodos;
     const paquete = filtrando && paq0 && paq0.cantidades ? Object.assign({}, paq0, {cantidades: Object.assign({}, paq0.cantidades,
       {productos: Object.fromEntries(Object.entries(prods0).filter(([k]) => sel.has(String(Number(k)))))})}) : paq0;
-    const filtro = nums.length > 1 ? `<div class="filtro" role="group" aria-label="Filtrar por producto"><span class="fl">Productos:</span>
+    const base = d.base || "data/";
+    if (!el._tbBolsa) el._tbBolsa = bolsaDeUrl();
+    const toks = el._tbBolsa;
+    let pers = null, estadoB = "";
+    if (toks.length && bolsa) {
+      if (el._tbB && el._tbB.base === base) {
+        pers = toks.map(t => periodo(t, c, bolsa)).filter(Boolean).map(q => Object.assign(q, {est: estadistica(el._tbB.datos, q.desde, q.hasta)}))
+          .filter(q => q.est.dias);
+        if (!pers.length) { pers = null; estadoB = `<span class="err">Sin datos de bolsa para el periodo elegido.</span>`; }
+      } else if (el._tbBErr) {
+        estadoB = `<span class="err">No se pudo cargar el histórico de bolsa. Intente de nuevo.</span>`;
+      } else {
+        estadoB = `<span class="cargando">Cargando histórico de bolsa…</span>`;
+        if (!el._tbBCargando) {
+          el._tbBCargando = true;
+          cargarBolsa(base).then(B => { el._tbB = {base, datos: B}; }).catch(() => { el._tbBErr = true; })
+            .finally(() => { el._tbBCargando = false; renderTablero(el, el._tbDatos); });
+        }
+      }
+    }
+    const anios = bolsa && bolsa.desde && bolsa.hasta ? Array.from({length: +bolsa.hasta.slice(0, 4) - +bolsa.desde.slice(0, 4) + 1}, (_, i) => String(+bolsa.desde.slice(0, 4) + i)) : [];
+    const mesesB = bolsa && bolsa.mensual ? Object.keys(bolsa.mensual).sort() : [];
+    const rango = toks.find(t => t.includes(":")) || "";
+    const [rd, rh] = rango ? rango.split(":") : [mesesB[Math.max(0, mesesB.length - 12)] || "", mesesB[mesesB.length - 1] || ""];
+    const op = (v, sel) => `<option value="${esc(v)}"${v === sel ? " selected" : ""}>${esc(mesTxt(v))}</option>`;
+    const bt = (v, txt) => `<button type="button" data-b="${esc(v)}" aria-pressed="${toks.includes(v)}">${esc(txt)}</button>`;
+    const filtroB = bolsa && mesesB.length ? `<div class="filtro bolsa" role="group" aria-label="Periodo del precio de bolsa"><span class="fl">Bolsa para comparar:</span>
+      <button type="button" data-b="" aria-pressed="${!toks.length}">Predeterminado</button>
+      ${bt("cierre", "Mes de cierre")}${bt("12m", "Últimos 12 meses")}<span class="sep"></span>
+      ${anios.map(a => bt(a, a)).join("")}<span class="sep"></span>
+      <span class="fl">Rango:</span><select data-r="d" aria-label="Desde">${mesesB.map(m => op(m, rd)).join("")}</select>
+      <select data-r="h" aria-label="Hasta">${mesesB.map(m => op(m, rh)).join("")}</select>
+      <button type="button" data-b="rango" aria-pressed="${!!rango}">${rango ? "Quitar rango" : "Aplicar rango"}</button>
+      ${estadoB}</div>` : "";
+    const filtro = nums.length > 1 ? `<div class="filtro prods" role="group" aria-label="Filtrar por producto"><span class="fl">Productos:</span>
       <button type="button" data-p="" aria-pressed="${!filtrando}">Todos</button>
       ${nums.map(n => `<button type="button" data-p="${esc(n)}" aria-pressed="${filtrando && sel.has(n)}">P${esc(n)}</button>`).join("")}</div>` : "";
     const alertas = ((paquete && paquete.alertas) || []).filter(a => /SICEP|diferencia/i.test(String(a)));
@@ -256,13 +376,14 @@
     const defs = [
       ["Demanda por producto", "GWh demandados vs adjudicados (datos SICEP)", gDemanda(P)],
       ["MWh por año", "Energía por producto según el anexo de cantidades", gAnual(paquete)],
-      ["Curva horaria vs precio de bolsa", "Demanda promedio por hora y precio de bolsa de los últimos 12 meses", gCurva(paquete, bolsa, P)],
-      ["Precio adjudicado vs bolsa", "", gPrecio(P, c, bolsa)]].filter(x => x[2]);
+      ["Curva horaria vs precio de bolsa", "Demanda promedio por hora y precio de bolsa de los últimos 12 meses", gCurva(paquete, bolsa, P, pers)],
+      ["Precio adjudicado vs bolsa", "", gPrecio(P, c, bolsa, pers)]].filter(x => x[2]);
     const gr = defs.map(([t, s, r], i) => `<div class="gc"><h4>${esc(t)}</h4>${(r.sub || s) ? `<div class="sub">${esc(r.sub || s)}</div>` : ""}
       ${r.aviso ? `<div class="aviso">${esc(r.aviso)}</div>` : `<div class="plot" id="tb-g${i}" role="img" aria-label="${esc(t)}"></div>`}</div>`).join("");
     el.innerHTML = `<section class="tb" aria-label="Tablero de la convocatoria">
       ${kpis(c, P, filtrando ? {total: nums.length} : null)}
       ${filtro}
+      ${filtroB}
       ${alertas.length ? `<div class="roja"><b>Revisar:</b><ul>${alertas.map(a => `<li>${esc(a)}</li>`).join("")}</ul></div>` : ""}
       ${!hayEcharts ? `<div class="aviso gen">No se pudo cargar la librería de gráficos. Los indicadores de arriba siguen disponibles.</div>` : ""}
       ${hayEcharts ? `<div class="graficos">${gr}</div>` : ""}</section>`;
@@ -271,6 +392,23 @@
       el.addEventListener("click", ev => {
         const b = ev.target.closest(".tb .filtro button");
         if (!b || !el.contains(b)) return;
+        if (b.dataset.b !== undefined) {
+          let t = el._tbBolsa.slice();
+          const v = b.dataset.b;
+          if (!v) t = [];
+          else if (v === "rango") {
+            const r = t.find(x => x.includes(":"));
+            t = t.filter(x => !x.includes(":"));
+            if (!r) {
+              const dd = el.querySelector('.tb select[data-r="d"]').value, hh = el.querySelector('.tb select[data-r="h"]').value;
+              t.push(dd <= hh ? `${dd}:${hh}` : `${hh}:${dd}`);
+            }
+          } else t = t.includes(v) ? t.filter(x => x !== v) : t.concat(v);
+          el._tbBolsa = t; el._tbBErr = false;
+          selAUrl(null, "b", t);
+          renderTablero(el, el._tbDatos);
+          return;
+        }
         const n = b.dataset.p, s = new Set(el._tbSel);
         if (!n) s.clear(); else if (s.has(n)) s.delete(n); else s.add(n);
         el._tbSel = s;

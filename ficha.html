@@ -116,7 +116,7 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
   Promise.all([get("data/pliegos/"+encodeURIComponent(cid)+".json"),get("data/bolsa_resumen.json")]).then(([pq,bolsa])=>{
     renderPliego(tp,pq,exp);
     try{activarExport(tp,{conv:c,productos:P,paquete:pq,base:"data/"});}catch(e){console.error(e);}
-    try{renderTablero(document.getElementById("tablero"),{conv:c,productos:P,paquete:pq,bolsa});}catch(e){console.error(e);}
+    try{renderTablero(document.getElementById("tablero"),{conv:c,productos:P,paquete:pq,bolsa,base:"data/"});}catch(e){console.error(e);}
   });
 })
 .catch(e=>{document.getElementById("app").innerHTML="Error cargando datos.";});
