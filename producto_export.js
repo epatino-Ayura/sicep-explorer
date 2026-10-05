@@ -86,7 +86,7 @@
   function hojaDemanda(ctx) {
     if (!ctx.dem) return [["Sin demanda horaria: el anexo no trae cantidades para este producto."]];
     const d = ctx.dem, f = [["Fecha", "Hora", "Franja", "Tipo de día", "MWh"]];
-    for (let i = 0; i < d.fecha.length; i++) f.push([d.fecha[i], d.hora[i], franja(d.hora[i]), d.tipo[i], mwh3(d.mwh[i])]);
+    for (let i = 0; i < d.fecha.length; i++) f.push([d.fecha[i], d.hora[i], franja(d.hora[i]), d.tipo[i], d.mwh[i]]);
     return f;
   }
 
@@ -156,6 +156,7 @@
     const hojas = [hojaResumen, hojaDemanda, hojaMeses, hojaTarifa, hojaBolsa, hojaNotas];
     hojas.forEach((fn, i) => {
       const ws = X.utils.aoa_to_sheet(fn(ctx));
+      if (i === 1) Object.keys(ws).forEach((k) => { if (/^E\d+$/.test(k) && k !== "E1" && ws[k].t === "n") ws[k].z = "0.000"; });
       ws["!cols"] = i === 1 ? [{wch: 12}, {wch: 6}, {wch: 13}, {wch: 14}, {wch: 12}] : [{wch: 32}, {wch: 40}, {wch: 50}];
       X.utils.book_append_sheet(wb, ws, HOJAS[i]);
     });
@@ -170,7 +171,7 @@
     try {
       const g = window.echarts.init(div, null, {renderer: "canvas"});
       g.setOption(Object.assign({animation: false, textStyle: {fontSize: 13}, grid: {left: 60, right: 16, top: 30, bottom: 30}}, opcion));
-      const url = g.getDataURL({pixelRatio: 2, backgroundColor: "#ffffff"});
+      const url = g.getDataURL({type: "jpeg", pixelRatio: 2, backgroundColor: "#ffffff"});
       g.dispose();
       return url;
     } catch (e) { return null; } finally { div.remove(); }
@@ -181,7 +182,7 @@
     await cargarScript(CDN.autotable);
     if (!window.jspdf) throw new Error("No se pudo cargar la librería jsPDF");
     const {jsPDF} = window.jspdf, T = C.pdfTxt, r = ctx.r;
-    const doc = new jsPDF({unit: "pt", format: "letter"});
+    const doc = new jsPDF({unit: "pt", format: "letter", compress: true});
     const W = doc.internal.pageSize.getWidth(), M = 40;
     let y = M;
     const titulo = (s) => { doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.text(T(s), M, y); y += 14; doc.setFont("helvetica", "normal"); };
@@ -217,16 +218,17 @@
 
     if (ctx.dem) {
       const anual = C.anualDesde(ctx.dem), anios = Object.keys(anual).sort();
-      const img1 = imagenGrafico({title: {text: "MWh por año", left: "center", textStyle: {fontSize: 14}},
-        xAxis: {type: "category", data: anios}, yAxis: {type: "value"}, series: [{type: "bar", data: anios.map((a) => Math.round(anual[a])), itemStyle: {color: "#1f4e79"}}]});
+      const fmtEje = {axisLabel: {formatter: (v) => Number(v).toLocaleString("es-CO")}};
+      const img1 = imagenGrafico({title: {text: "MWh por año", left: "left", textStyle: {fontSize: 14}},
+        xAxis: {type: "category", data: anios}, yAxis: Object.assign({type: "value"}, fmtEje), series: [{type: "bar", data: anios.map((a) => Math.round(anual[a])), itemStyle: {color: "#1f4e79"}}]});
       const P = (ctx.q.perfiles && ctx.q.perfiles[anios[0]]) || ctx.q.perfil || {};
-      const img2 = imagenGrafico({title: {text: "Curva horaria típica (MWh/h)", left: "center", textStyle: {fontSize: 14}},
-        legend: {bottom: 0}, xAxis: {type: "category", data: [...Array(24).keys()].map((h) => "H" + (h + 1))}, yAxis: {type: "value"},
+      const img2 = imagenGrafico({title: {text: "Curva horaria típica (MWh/h)", left: "left", textStyle: {fontSize: 14}},
+        legend: {top: 0, right: 0}, xAxis: {type: "category", data: [...Array(24).keys()].map((h) => "H" + (h + 1))}, yAxis: Object.assign({type: "value"}, fmtEje),
         series: Object.entries(P).map(([t, v]) => ({type: "line", name: t, data: v, showSymbol: false}))});
       const ancho = (W - 2 * M - 10) / 2, alto = ancho * 280 / 640;
       salto(alto + 10);
-      if (img1) doc.addImage(img1, "PNG", M, y, ancho, alto);
-      if (img2) doc.addImage(img2, "PNG", M + ancho + 10, y, ancho, alto);
+      if (img1) doc.addImage(img1, "JPEG", M, y, ancho, alto, undefined, "FAST");
+      if (img2) doc.addImage(img2, "JPEG", M + ancho + 10, y, ancho, alto, undefined, "FAST");
       if (img1 || img2) y += alto + 12; else { doc.setFontSize(8); doc.text(T("Gráficas no disponibles (ECharts no cargó)."), M, y); y += 12; }
 
       salto(120);
