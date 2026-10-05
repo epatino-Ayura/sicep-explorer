@@ -157,7 +157,7 @@
       periodo: rp ? [val(rp.periodo_inicio), val(rp.periodo_fin)].filter(Boolean).join(" a ") : null,
       horario: rp ? val(rp.horario) : null,
       tipo_contrato: (s && s.tipo_contrato) || (rp ? val(rp.tipo_contrato) : null),
-      precio: s && s.precio_prom_adjudicado != null ? +s.precio_prom_adjudicado : null,
+      precio: s && s.precio_prom_adjudicado != null && +s.precio_prom_adjudicado > 0 ? +s.precio_prom_adjudicado : null,   // SICEP publica 0 sin adjudicar
       indexacion: {indice: val(ix.indice), periodicidad: val(ix.periodicidad), base: val(ix.base),
                    pag: {indice: pag(ix.indice), periodicidad: pag(ix.periodicidad), base: pag(ix.base)}},
       moneda_base: val(r.precio && r.precio.moneda_base),

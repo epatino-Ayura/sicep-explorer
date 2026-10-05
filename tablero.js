@@ -13,6 +13,7 @@
   const anio = s => s ? String(s).slice(0, 4) : "";
   const pLabel = p => { const m = /(\d+)\s*$/.exec(p || ""); return m ? "P" + Number(m[1]) : String((p || "").split("-").pop()); };
   const pNum = p => { const m = /(\d+)\s*$/.exec(p || ""); return m ? String(Number(m[1])) : null; };
+  const precioOk = p => { const v = num(p.precio_prom_adjudicado); return v != null && v > 0 ? v : null; };  // SICEP publica 0 en productos sin adjudicar
   const compacto = v => Math.abs(v) >= 1e6 ? nf(v / 1e6, 1) + " M" : fx(v);
 
   const CSS = `
@@ -34,6 +35,10 @@
   .tb .plot{width:100%;height:270px;overflow:hidden}
   .tb .graficos,.tb .gc{overflow:hidden}
   .tb .aviso{margin:0 6px 8px;padding:26px 10px;text-align:center;color:var(--muted);font-size:13px;background:#f8f8f6;border-radius:8px}
+  .tb .filtro{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:-4px 0 14px}
+  .tb .filtro .fl{font-size:12px;color:var(--muted);margin-right:4px}
+  .tb .filtro button{border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:999px;padding:4px 12px;font:inherit;font-size:13px;cursor:pointer}
+  .tb .filtro button[aria-pressed="true"]{background:#2E6FB0;border-color:#2E6FB0;color:#fff}
   .tb .aviso.gen{text-align:left;padding:10px 14px;margin:0 0 14px;background:#fff7ed;border:1px solid #fdba74;color:#7c2d12}
   `;
 
@@ -50,12 +55,22 @@
     return Math.round((new Date(+m[1], +m[2] - 1, +m[3]) - hoy) / 864e5);
   }
 
-  function kpis(c, P) {
-    const dem = num(c.energia_demandada_gwh), adj = num(c.energia_adjudicada_gwh);
+  // f = {sel: Set|null, total: n} cuando hay filtro de productos: las cifras salen de los productos marcados.
+  function kpis(c, P, f) {
+    const suma = k => P.reduce((s, p) => num(p[k]) == null ? s : (s ?? 0) + num(p[k]), null);
+    const dem = f ? suma("energia_demandada_gwh") : num(c.energia_demandada_gwh);
+    const adj = f ? suma("energia_adjudicada_gwh") : num(c.energia_adjudicada_gwh);
     const pct = dem && adj != null ? adj / dem * 100 : null;
     const k = (l, n, s, cls) => `<div class="kpi ${cls || ""}"><div class="l">${esc(l)}</div><div class="n ${/^t/.test(cls || "") ? "t" : ""}">${n}</div>${s ? `<div class="s">${s}</div>` : ""}</div>`;
     const t = (l, v) => `<div class="kpi"><div class="l">${esc(l)}</div><div class="n t">${esc(v || "—")}</div></div>`;
-    const ini = anio(c.inicio_suministro), fin = anio(c.fin_suministro);
+    let ini = anio(c.inicio_suministro), fin = anio(c.fin_suministro), precio = num(c.precio_prom_ponderado);
+    if (f) {
+      const ii = P.map(p => anio(p.inicio_obligacion)).filter(Boolean).sort(), ff = P.map(p => anio(p.fin_obligacion)).filter(Boolean).sort();
+      ini = ii[0] || ""; fin = ff[ff.length - 1] || "";
+      let w = 0, sw = 0;
+      P.forEach(p => { const v = precioOk(p), e = num(p.energia_adjudicada_gwh); if (v != null && e > 0) { w += e; sw += v * e; } });
+      precio = w ? sw / w : null;
+    }
     let plazo = "";
     if (c.estado === "Abierta" && c.fecha_limite_oferta) {
       const d = diasFaltan(c.fecha_limite_oferta);
@@ -66,8 +81,8 @@
       ${t("Estado", c.estado)}${t("Comprador", c.agente_comprador)}
       ${k("GWh demandados", nf(dem, 0))}
       ${k("GWh adjudicados", nf(adj, 0), pct == null ? "" : nf(pct, 0) + " % de lo demandado")}
-      ${k("Precio adjudicado", num(c.precio_prom_ponderado) == null ? "—" : "$ " + nf(c.precio_prom_ponderado, 2), "$/kWh, promedio ponderado")}
-      ${k("Productos", esc(c.n_productos ?? P.length ?? "—"))}
+      ${k("Precio adjudicado", precio == null ? "—" : "$ " + nf(precio, 2), "$/kWh, promedio ponderado")}
+      ${f ? k("Productos", esc(P.length + " de " + f.total), "seleccionados") : k("Productos", esc(c.n_productos ?? P.length ?? "—"))}
       ${k("Suministro", ini && fin ? (ini === fin ? ini : ini + "–" + fin) : "—", "", "t")}
       ${plazo}</div>`;
   }
@@ -110,8 +125,8 @@
     o.xAxis = eje({type: "category", data: anios});
     o.yAxis = valor("MWh", {axisLabel: {fontSize: FUENTE, color: COL.muted, formatter: compacto}});
     o.tooltip.valueFormatter = v => v == null ? "—" : nf(v, 0) + " MWh";
-    o.series = claves.map((k, i) => ({name: "P" + Number(k), type: "bar", stack: "mwh", barMaxWidth: 38,
-      itemStyle: {color: PALETA[i % PALETA.length]}, data: anios.map(a => num(prods[k].mwh_anual[a]))}));
+    o.series = claves.map(k => ({name: "P" + Number(k), type: "bar", stack: "mwh", barMaxWidth: 38,
+      itemStyle: {color: PALETA[(Number(k) - 1 + PALETA.length) % PALETA.length]}, data: anios.map(a => num(prods[k].mwh_anual[a]))}));  // color fijo por producto al filtrar
     return {opt: o};
   }
 
@@ -173,15 +188,15 @@
   }
 
   function gPrecio(P, c, bolsa) {
-    const ps = P.filter(p => num(p.precio_prom_adjudicado) != null);
-    if (!ps.length) return null;
+    const ps = P.filter(p => precioOk(p) != null);
+    if (!ps.length) return P.some(p => num(p.energia_adjudicada_gwh) != null) ? {aviso: "Ningún producto seleccionado tiene precio adjudicado"} : null;
     const mk = bolsa && bolsa.mensual ? mesCercano(bolsa.mensual, c.fecha_cierre || c.fecha_limite_oferta) : null;
     const pb = mk ? bolsa.mensual[mk] : null;
     const o = baseOpt();
     o.xAxis = eje({type: "category", data: ps.map(p => pLabel(p.producto))});
     o.yAxis = valor("$/kWh", {axisLabel: {fontSize: FUENTE, color: COL.muted, formatter: v => nf(v, 0)}});
     o.tooltip.valueFormatter = v => v == null ? "—" : "$ " + nf(v, 2) + " /kWh";
-    const serie = {name: "Precio adjudicado", type: "bar", barMaxWidth: 40, itemStyle: {color: COL.adj}, data: ps.map(p => num(p.precio_prom_adjudicado))};
+    const serie = {name: "Precio adjudicado", type: "bar", barMaxWidth: 40, itemStyle: {color: COL.adj}, data: ps.map(precioOk)};
     o.series = [serie];
     if (pb != null) {
       const [y, m] = mk.split("-");
@@ -201,15 +216,41 @@
     return {opt: o, sub: base + " · " + linea};
   }
 
+  // Selección de productos en el enlace (?p=1,3) para compartir la vista filtrada.
+  function selDeUrl() {
+    try { const v = new URLSearchParams(location.search).get("p"); return new Set(v ? v.split(",").map(x => String(Number(x))).filter(x => x !== "NaN") : []); }
+    catch (e) { return new Set(); }
+  }
+  function selAUrl(s) {
+    try {
+      const u = new URL(location.href);
+      if (s.size) u.searchParams.set("p", [...s].sort((a, b) => a - b).join(",")); else u.searchParams.delete("p");
+      history.replaceState(history.state, "", u.toString().replace(/%2C/g, ","));
+    } catch (e) { /* sin historial: el filtro sigue funcionando en la página */ }
+  }
+
   function renderTablero(el, d) {
     estilo();
     if (typeof window.echarts === "undefined" && document.readyState !== "complete" && !el._tbEsperando) {
       el._tbEsperando = true;  // ECharts se carga con defer: esperar a que termine la carga de la página
       window.addEventListener("load", () => renderTablero(el, d), {once: true});
     }
-    const {conv: c, productos: P0, paquete, bolsa} = d || {};
+    const {conv: c, productos: P0, paquete: paq0, bolsa} = d || {};
     if (!c || !el) return;
-    const P = (P0 || []).filter(p => p && p.producto);
+    el._tbDatos = d;
+    const Ptodos = (P0 || []).filter(p => p && p.producto);
+    const prods0 = (paq0 && paq0.cantidades && paq0.cantidades.productos) || {};
+    const nums = [...new Set(Ptodos.length ? Ptodos.map(p => pNum(p.producto)).filter(Boolean) : Object.keys(prods0).map(k => String(Number(k))))]
+      .sort((a, b) => a - b);
+    if (!el._tbSel) el._tbSel = selDeUrl();
+    const sel = new Set([...el._tbSel].filter(n => nums.includes(n)));
+    const filtrando = sel.size > 0 && sel.size < nums.length;
+    const P = filtrando ? Ptodos.filter(p => sel.has(pNum(p.producto))) : Ptodos;
+    const paquete = filtrando && paq0 && paq0.cantidades ? Object.assign({}, paq0, {cantidades: Object.assign({}, paq0.cantidades,
+      {productos: Object.fromEntries(Object.entries(prods0).filter(([k]) => sel.has(String(Number(k)))))})}) : paq0;
+    const filtro = nums.length > 1 ? `<div class="filtro" role="group" aria-label="Filtrar por producto"><span class="fl">Productos:</span>
+      <button type="button" data-p="" aria-pressed="${!filtrando}">Todos</button>
+      ${nums.map(n => `<button type="button" data-p="${esc(n)}" aria-pressed="${filtrando && sel.has(n)}">P${esc(n)}</button>`).join("")}</div>` : "";
     const alertas = ((paquete && paquete.alertas) || []).filter(a => /SICEP|diferencia/i.test(String(a)));
     const hayEcharts = typeof window.echarts !== "undefined";
     const defs = [
@@ -220,10 +261,23 @@
     const gr = defs.map(([t, s, r], i) => `<div class="gc"><h4>${esc(t)}</h4>${(r.sub || s) ? `<div class="sub">${esc(r.sub || s)}</div>` : ""}
       ${r.aviso ? `<div class="aviso">${esc(r.aviso)}</div>` : `<div class="plot" id="tb-g${i}" role="img" aria-label="${esc(t)}"></div>`}</div>`).join("");
     el.innerHTML = `<section class="tb" aria-label="Tablero de la convocatoria">
-      ${kpis(c, P)}
+      ${kpis(c, P, filtrando ? {total: nums.length} : null)}
+      ${filtro}
       ${alertas.length ? `<div class="roja"><b>Revisar:</b><ul>${alertas.map(a => `<li>${esc(a)}</li>`).join("")}</ul></div>` : ""}
       ${!hayEcharts ? `<div class="aviso gen">No se pudo cargar la librería de gráficos. Los indicadores de arriba siguen disponibles.</div>` : ""}
       ${hayEcharts ? `<div class="graficos">${gr}</div>` : ""}</section>`;
+    if (!el._tbFiltro) {
+      el._tbFiltro = true;
+      el.addEventListener("click", ev => {
+        const b = ev.target.closest(".tb .filtro button");
+        if (!b || !el.contains(b)) return;
+        const n = b.dataset.p, s = new Set(el._tbSel);
+        if (!n) s.clear(); else if (s.has(n)) s.delete(n); else s.add(n);
+        el._tbSel = s;
+        selAUrl(s);
+        renderTablero(el, el._tbDatos);
+      });
+    }
     if (!hayEcharts) return;
     (el._tbCharts || []).forEach(ch => ch.dispose());
     el._tbCharts = [];
