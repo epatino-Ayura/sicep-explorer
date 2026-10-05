@@ -53,13 +53,30 @@
     return `<tr><th>Período</th><td>${esc(v)}${fuente(i || f, exp)}${mismo ? "" : fuente(f, exp)}</td></tr>`;
   }
 
-  function tarjetaProducto(num, q, r, exp, arch) {
+  // Etiqueta suave cuando el total del anexo difiere >2 % de lo que publica SICEP (no oculta el total).
+  function difSicep(num, q, sicep) {
+    const gwh = sicep && Number(sicep.energia_demandada_gwh);
+    if (!q || !q.total_mwh || !gwh) return "";
+    const mwhS = gwh * 1000, d = q.total_mwh / mwhS - 1;
+    if (Math.abs(d) <= 0.02) return "";
+    const notas = (q.descartes || []).join(" ").toLowerCase();
+    const confirma = /el pliego confirma/.test(notas), noConfirma = /pliego no lo confirma/.test(notas);
+    const unidad = q.total_mwh / mwhS > 100 || q.total_mwh / mwhS < 0.01;
+    const pct = (d > 0 ? "+" : "−") + Math.abs(d * 100).toLocaleString("es", {maximumFractionDigits: Math.abs(d) < 0.1 ? 1 : 0}) + " %";
+    const texto = unidad ? "SICEP con error de unidad (~1000×)" : `Anexo ${pct} vs SICEP`;
+    const cola = confirma && !noConfirma ? " · pliego confirma" : " · revisar";
+    const cls = confirma && !noConfirma ? "dif ok" : "dif rev";
+    const tip = `Anexo ${n0(q.total_mwh)} MWh; SICEP publica ${n0(mwhS)} MWh` + (confirma && !noConfirma ? ". El pliego confirma la cifra del anexo." : ". El pliego no la confirma: revisar.");
+    return `<span class="${cls}" title="${esc(tip)}">${esc(texto + cola)}</span>`;
+  }
+
+  function tarjetaProducto(num, q, r, exp, arch, sicep) {
     const curva = (q && q.tipo_curva) || (r && r.tipo_curva);
     const franja = q && q.franja ? ` (${esc(q.franja)})` : "";
     const anual = q ? Object.entries(q.mwh_anual || {}).map(([a, v]) => `<tr><td>${esc(a)}</td><td class="num">${n0(v)}</td></tr>`).join("") : "";
     const fa = q && arch.length ? `<div class="hint">Fuente: ${arch.map(a => `<a class="src" href="${esc(exp)}" target="_blank" rel="noopener" title="Ver en el expediente oficial">${esc(a)}</a>`).join("; ")}</div>` : "";
     return `<div class="prod">
-      <h4>${esc(r ? r.nombre : "Producto " + num)} · <span class="curva">${esc(CURVA[curva] || "—")}${franja}</span></h4>
+      <h4>${esc(r ? r.nombre : "Producto " + num)} · <span class="curva">${esc(CURVA[curva] || "—")}${franja}</span> ${difSicep(num, q, sicep)}</h4>
       <table class="kv">
         ${r ? periodo(r, exp) : ""}
         ${r ? fila("Horario", r.horario, exp) : ""}
@@ -90,7 +107,7 @@
     return m ? Number(m[1]) : pos;
   }
 
-  window.renderPliego = function (el, pq, exp) {
+  window.renderPliego = function (el, pq, exp, productosSicep) {
     if (!pq) { el.innerHTML = '<div class="hint">Pliego pendiente de descarga y resumen.</div>'; return; }
     const r = pq.resumen, c = pq.cantidades;
     const qp = (c && c.productos) || {};
@@ -106,7 +123,8 @@
       ${r ? `<p class="ejec">${esc(r.resumen_ejecutivo)}</p>` : '<div class="hint">Condiciones pendientes de resumen. Se muestran las cantidades del anexo.</div>'}
       ${!c || !Object.keys(qp).length ? `<div class="hint">Cantidades no disponibles${c ? " (anexo " + esc(String(c.estado || "").replace("_", " ")) + ")" : ""}.</div>` : ""}
       <h3>Productos</h3>
-      <div class="prods">${nums.map(n => tarjetaProducto(n, qp[String(n)], rmap[n], exp, (c && c.archivos) || [])).join("") || '<div class="hint">Sin productos.</div>'}</div>
+      <div class="prods">${nums.map(n => tarjetaProducto(n, qp[String(n)], rmap[n], exp, (c && c.archivos) || [],
+        (productosSicep || []).find(p => { const m = /(\d+)\s*$/.exec(p.producto || ""); return m && Number(m[1]) === n; }))).join("") || '<div class="hint">Sin productos.</div>'}</div>
       ${r ? `
       <h3>Precio</h3><table class="kv">${fila("Tope / reserva", r.precio?.tope_o_reserva, exp)}${fila("Moneda base", r.precio?.moneda_base, exp)}
         ${fila("Indexación · índice", r.precio?.indexacion?.indice, exp)}${fila("Indexación · periodicidad", r.precio?.indexacion?.periodicidad, exp)}${fila("Indexación · base", r.precio?.indexacion?.base, exp)}</table>
