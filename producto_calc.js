@@ -40,19 +40,23 @@
       bloques = Object.entries(q.mwh_anual || {}).map(([k, v]) => ({y: +k, m: 0, mwh: +v}));
     bloques.sort((a, b) => a.y - b.y || a.m - b.m);
     const fecha = [], tipo = [], hora = [], mwh = [];
+    let fuera = 0;
+    const fueraClaves = [];
     for (const b of bloques) {
       const meses = b.m ? [b.m] : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-      const dias = [];
-      for (const m of meses) for (let d = 1; d <= diasMes(b.y, m); d++) {
-        const s = iso(b.y, m, d);
-        if (obligacion && (s < obligacion.inicio || s > obligacion.fin)) continue;
-        dias.push(s);
+      const todos = [];
+      for (const m of meses) for (let d = 1; d <= diasMes(b.y, m); d++) todos.push(iso(b.y, m, d));
+      let dias = obligacion ? todos.filter((s) => s >= obligacion.inicio && s <= obligacion.fin) : todos;
+      if (!dias.length) {   // bloque enteramente fuera de la obligación: se reparte en todos sus días
+        dias = todos;
+        if (b.mwh > 0) { fuera += b.mwh; fueraClaves.push(`${b.y}${b.m ? "-" + pad(b.m) : ""}`); }
       }
-      if (!dias.length) {
-        if (b.mwh > 0) notas.push(`${b.y}${b.m ? "-" + pad(b.m) : ""}: ${b.mwh} MWh fuera del periodo de obligación SICEP; no se reparten.`);
-        continue;
+      let P = perfilAnio(q.perfiles, String(b.y), notas);
+      if (!P) {
+        P = {ordinario: Array(24).fill(1)};
+        const n = "El anexo no trae perfil horario; se reparte plano por hora.";
+        if (!notas.includes(n)) notas.push(n);
       }
-      const P = perfilAnio(q.perfiles, String(b.y), notas) || {ordinario: Array(24).fill(1)};
       const disp = Object.keys(P);
       const crudo = [];
       let suma = 0;
@@ -71,7 +75,13 @@
         }
       }
     }
-    return {fecha, tipo, hora: Int8Array.from(hora), mwh: Float64Array.from(mwh), notas};
+    if (fuera > 0) {
+      const tot = bloques.reduce((a, b) => a + b.mwh, 0);
+      const pct = tot ? Math.round((fuera / tot) * 1000) / 10 : 0;
+      const f = (x) => Math.round(x).toLocaleString("es-CO");
+      notas.push(`${f(fuera)} MWh (${pct} % del total) del anexo están en meses fuera del periodo de obligación SICEP (${fueraClaves[0]} a ${fueraClaves[fueraClaves.length - 1]}; obligación ${obligacion.inicio} a ${obligacion.fin}); se incluyen tal como vienen en el anexo — revisar.`);
+    }
+    return {fecha, tipo, hora: Int8Array.from(hora), mwh: Float64Array.from(mwh), mwh_fuera_obligacion: fuera, notas};
   }
 
   function agrupar(dem, largo) {
@@ -106,9 +116,9 @@
       if (p == null) { sinPrecio++; continue; }
       r.mwh_con_precio += dem.mwh[i]; r.costo_bolsa += dem.mwh[i] * 1000 * p;
     }
-    if (sinPrecio) notas.push(`${sinPrecio} horas sin precio de bolsa de referencia; el costo a bolsa se calcula sobre las horas con precio.`);
+    if (sinPrecio) notas.push(`${sinPrecio} horas sin precio de bolsa de referencia; la comparación (costo a bolsa, costo adjudicado y diferencia) cubre solo las horas con precio.`);
     const fila = (r) => {
-      const adj = precio == null ? null : r.mwh * 1000 * precio;
+      const adj = precio == null ? null : r.mwh_con_precio * 1000 * precio;
       return {anio: r.anio, mwh: r.mwh, costo_bolsa: r.costo_bolsa, costo_adjudicado: adj,
               diferencia: adj == null ? null : adj - r.costo_bolsa,
               precio_bolsa_curva: r.mwh_con_precio ? r.costo_bolsa / (r.mwh_con_precio * 1000) : null};
@@ -169,7 +179,7 @@
   const PDF_MAP = {"–": "-", "—": "-", "→": "->", "≈": "~", "≤": "<=", "≥": ">=", "·": "-", "“": '"', "”": '"', "‘": "'", "’": "'", "…": "...", "•": "-"};
   function pdfTxt(s) {
     if (s == null) return "";
-    return String(s).replace(/[^\x00-\xFF]|·/g, (ch) => PDF_MAP[ch] ?? "?");
+    return String(s).replace(/[^\x00-\xFF]|·|[\x80-\x9F]/g, (ch) => (ch >= "\x80" && ch <= "\x9F" ? "" : PDF_MAP[ch] ?? "?"));
   }
 
   const API = {codigoProducto, tipoDia, tipoPerfil, demandaHoraria, mensualDesde, anualDesde,
