@@ -133,14 +133,14 @@ function render(p){
   const off=(page-1)*rows, pg=view.slice(off,off+rows);
   $("tb").innerHTML=pg.map(c=>`<tr>
     <td><a class="conv" href="ficha.html?c=${encodeURIComponent(c.convocatoria)}">${esc(c.convocatoria)}</a></td>
-    <td>${esc((c.producto||"").split("-").pop())}</td><td>${c.anio??""}</td>
+    <td>${esc((c.producto||"").split("-").pop())}</td><td>${esc(c.anio??"")}</td>
     <td><span class="pill ${stCls(c.estado)}">${esc((c.estado||"").replace("Cerrada y ",""))}</span></td>
     <td>${esc(c.agente_comprador??"")}</td>
     <td class="num">${n(c.energia_demandada_gwh)}</td><td class="num">${n(c.energia_adjudicada_gwh)}</td>
-    <td class="num">${c.precio_prom_adjudicado>0?n(c.precio_prom_adjudicado):"—"}</td><td class="num">${c.anios_contrato??"—"}</td>
-    <td>${yr(c.inicio_obligacion)}–${yr(c.fin_obligacion)}</td>
+    <td class="num">${c.precio_prom_adjudicado>0?n(c.precio_prom_adjudicado):"—"}</td><td class="num">${esc(c.anios_contrato??"—")}</td>
+    <td>${esc(yr(c.inicio_obligacion))}–${esc(yr(c.fin_obligacion))}</td>
     <td>${esc(c.tipo_contrato||"—")}</td>
-    <td class="num">${c.ofertas_recibidas??"—"}/${c.ofertas_adjudicadas??"—"}</td></tr>`).join("");
+    <td class="num">${esc(c.ofertas_recibidas??"—")}/${esc(c.ofertas_adjudicadas??"—")}</td></tr>`).join("");
   $("pageinfo").textContent=`Página ${page} de ${Math.max(1,Math.ceil(view.length/rows))}`;
 }
 function mover(d){const pg=Math.ceil(view.length/rows);page=Math.min(Math.max(1,page+d),pg||1);render(page)}
