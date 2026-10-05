@@ -10,6 +10,8 @@
   const HOJAS = ["Resumen", "Demanda horaria", "MWh mes y año", "Tarifa", "Bolsa", "Notas"];
   const CURVA = {plana_24h: "Plana 24 h", plana_franja: "Plana en franja", variable: "Variable"};
   const nf = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString("es-CO", {minimumFractionDigits: d, maximumFractionDigits: d}));
+  const mwh3 = (v) => (typeof v === "number" ? Math.round(v * 1000) / 1000 : v);
+  const cop0 = (v) => (typeof v === "number" ? Math.round(v) : v);
   const franja = (h) => `${String(h - 1).padStart(2, "0")}:00–${String(h - 1).padStart(2, "0")}:59`;
   const conPag = (x) => (x && x.v ? `${x.v}${x.pag != null ? ` (pliego p. ${x.pag})` : ""}` : "No indicado en el pliego");
 
@@ -84,7 +86,7 @@
   function hojaDemanda(ctx) {
     if (!ctx.dem) return [["Sin demanda horaria: el anexo no trae cantidades para este producto."]];
     const d = ctx.dem, f = [["Fecha", "Hora", "Franja", "Tipo de día", "MWh"]];
-    for (let i = 0; i < d.fecha.length; i++) f.push([d.fecha[i], d.hora[i], franja(d.hora[i]), d.tipo[i], d.mwh[i]]);
+    for (let i = 0; i < d.fecha.length; i++) f.push([d.fecha[i], d.hora[i], franja(d.hora[i]), d.tipo[i], mwh3(d.mwh[i])]);
     return f;
   }
 
@@ -95,11 +97,11 @@
     const f = [["Año", ...MES, "Total"]];
     let tot = 0;
     anios.forEach((a) => {
-      const fila = MES.map((_, i) => m[`${a}-${String(i + 1).padStart(2, "0")}`] ?? null);
+      const fila = MES.map((_, i) => mwh3(m[`${a}-${String(i + 1).padStart(2, "0")}`] ?? null));
       const s = fila.reduce((x, y) => x + (y || 0), 0); tot += s;
-      f.push([a, ...fila, s]);
+      f.push([a, ...fila, mwh3(s)]);
     });
-    f.push([], ["Total del contrato (MWh)", tot], ["Total del anexo (MWh)", ctx.r.total_mwh],
+    f.push([], ["Total del contrato (MWh)", mwh3(tot)], ["Total del anexo (MWh)", mwh3(ctx.r.total_mwh)],
            ["GWh demandados SICEP", ctx.r.demandada_gwh]);
     return f;
   }
@@ -127,7 +129,7 @@
     if (!ctx.costo) { f.push(["Sin comparación: el producto no tiene cantidades."]); return f; }
     f.push(["Año", "MWh", "Costo a bolsa (COP)", "Costo a precio adjudicado (COP)", "Diferencia (COP)", "Precio bolsa de la curva ($/kWh)"]);
     [...ctx.costo.filas, ctx.costo.total].forEach((x) =>
-      f.push([x.anio, x.mwh, x.costo_bolsa, x.costo_adjudicado ?? "Sin adjudicar", x.diferencia ?? "—", x.precio_bolsa_curva]));
+      f.push([x.anio, mwh3(x.mwh), cop0(x.costo_bolsa), cop0(x.costo_adjudicado ?? "Sin adjudicar"), cop0(x.diferencia ?? "—"), x.precio_bolsa_curva]));
     return f;
   }
 
@@ -149,6 +151,7 @@
 
   async function excel(ctx) {
     await cargarScript(CDN.xlsx);
+    if (!window.XLSX) throw new Error("No se pudo cargar la librería SheetJS");
     const X = window.XLSX, wb = X.utils.book_new();
     const hojas = [hojaResumen, hojaDemanda, hojaMeses, hojaTarifa, hojaBolsa, hojaNotas];
     hojas.forEach((fn, i) => {
@@ -159,5 +162,98 @@
     X.writeFile(wb, `${ctx.nombreBase}.xlsx`, {compression: true});
   }
 
-  window.ProductoExport = Object.assign(window.ProductoExport || {}, {cargarScript, datos, contexto, excel, HOJAS, CDN, avisos, nf, franja, conPag});
+  function imagenGrafico(opcion) {
+    if (typeof window.echarts === "undefined") return null;
+    const div = document.createElement("div");
+    div.style.cssText = "position:fixed;left:-10000px;top:0;width:640px;height:280px";
+    document.body.appendChild(div);
+    try {
+      const g = window.echarts.init(div, null, {renderer: "canvas"});
+      g.setOption(Object.assign({animation: false, textStyle: {fontSize: 13}, grid: {left: 60, right: 16, top: 30, bottom: 30}}, opcion));
+      const url = g.getDataURL({pixelRatio: 2, backgroundColor: "#ffffff"});
+      g.dispose();
+      return url;
+    } catch (e) { return null; } finally { div.remove(); }
+  }
+
+  async function pdf(ctx) {
+    await cargarScript(CDN.jspdf);
+    await cargarScript(CDN.autotable);
+    if (!window.jspdf) throw new Error("No se pudo cargar la librería jsPDF");
+    const {jsPDF} = window.jspdf, T = C.pdfTxt, r = ctx.r;
+    const doc = new jsPDF({unit: "pt", format: "letter"});
+    const W = doc.internal.pageSize.getWidth(), M = 40;
+    let y = M;
+    const titulo = (s) => { doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.text(T(s), M, y); y += 14; doc.setFont("helvetica", "normal"); };
+    const tabla = (head, body, opts = {}) => {
+      doc.autoTable(Object.assign({startY: y, head: head ? [head.map(T)] : undefined, body: body.map((f) => f.map((c) => T(c ?? "—"))),
+        margin: {left: M, right: M}, styles: {fontSize: 8.5, cellPadding: 3, overflow: "linebreak"},
+        headStyles: {fillColor: [31, 78, 121]}, theme: "grid"}, opts));
+      y = doc.lastAutoTable.finalY + 12;
+    };
+    const salto = (alto) => { if (y + alto > doc.internal.pageSize.getHeight() - M) { doc.addPage(); y = M; } };
+
+    doc.setFont("helvetica", "bold"); doc.setFontSize(15);
+    doc.text(T(`${r.conv} - ${r.nombre}`), M, y); y += 16;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+    doc.text(T(`${r.comprador || "—"} | ${r.mercado || "—"} | ${r.estado || "—"} | FNCER: ${r.fncer ? "Sí" : "No"} | Generado ${new Date().toISOString().slice(0, 10)}`), M, y);
+    y += 14;
+
+    const av = avisos(ctx);
+    if (av.length) {
+      doc.setTextColor(160, 30, 30);
+      doc.splitTextToSize(T("Avisos: " + av.join(" | ")), W - 2 * M).forEach((l) => { doc.text(l, M, y); y += 11; });
+      doc.setTextColor(0); y += 4;
+    }
+
+    titulo("Cifras clave");
+    tabla(null, [
+      ["MWh totales (anexo)", nf(r.total_mwh), "Periodo", r.periodo || (r.obligacion ? `${r.obligacion.inicio} a ${r.obligacion.fin}` : "—")],
+      ["Tipo de curva", (CURVA[r.tipo_curva] || r.tipo_curva || "—") + (r.franja ? ` (${r.franja})` : ""), "Horario", r.horario || "—"],
+      ["Precio adjudicado", r.precio == null ? "Sin adjudicar" : `$ ${nf(r.precio, 2)} /kWh`, "% adjudicado", r.pct_adjudicado == null ? "—" : `${nf(r.pct_adjudicado, 1)} %`],
+      ["Indexación", [r.indexacion.indice, r.indexacion.periodicidad, r.indexacion.base].filter(Boolean).join(" | ") || "No indicado en el pliego",
+       "Tipo de contrato", r.tipo_contrato || "—"],
+    ], {columnStyles: {0: {fontStyle: "bold", cellWidth: 95}, 2: {fontStyle: "bold", cellWidth: 85}}});
+
+    if (ctx.dem) {
+      const anual = C.anualDesde(ctx.dem), anios = Object.keys(anual).sort();
+      const img1 = imagenGrafico({title: {text: "MWh por año", left: "center", textStyle: {fontSize: 14}},
+        xAxis: {type: "category", data: anios}, yAxis: {type: "value"}, series: [{type: "bar", data: anios.map((a) => Math.round(anual[a])), itemStyle: {color: "#1f4e79"}}]});
+      const P = (ctx.q.perfiles && ctx.q.perfiles[anios[0]]) || ctx.q.perfil || {};
+      const img2 = imagenGrafico({title: {text: "Curva horaria típica (MWh/h)", left: "center", textStyle: {fontSize: 14}},
+        legend: {bottom: 0}, xAxis: {type: "category", data: [...Array(24).keys()].map((h) => "H" + (h + 1))}, yAxis: {type: "value"},
+        series: Object.entries(P).map(([t, v]) => ({type: "line", name: t, data: v, showSymbol: false}))});
+      const ancho = (W - 2 * M - 10) / 2, alto = ancho * 280 / 640;
+      salto(alto + 10);
+      if (img1) doc.addImage(img1, "PNG", M, y, ancho, alto);
+      if (img2) doc.addImage(img2, "PNG", M + ancho + 10, y, ancho, alto);
+      if (img1 || img2) y += alto + 12; else { doc.setFontSize(8); doc.text(T("Gráficas no disponibles (ECharts no cargó)."), M, y); y += 12; }
+
+      salto(120);
+      titulo("Comparación con bolsa");
+      doc.setFontSize(8);
+      doc.text(T(`Precio de bolsa de referencia: promedio horario ${ctx.ref.desde} a ${ctx.ref.hasta} por tipo de día. Pesos constantes, sin indexar.`), M, y); y += 8;
+      tabla(["Año", "MWh", "Costo a bolsa", "Costo a precio adjudicado", "Diferencia", "Bolsa de la curva $/kWh"],
+        [...ctx.costo.filas, ctx.costo.total].map((x) => [x.anio, nf(x.mwh), "$ " + nf(x.costo_bolsa),
+          x.costo_adjudicado == null ? "Sin adjudicar" : "$ " + nf(x.costo_adjudicado), x.diferencia == null ? "—" : "$ " + nf(x.diferencia),
+          nf(x.precio_bolsa_curva, 2)]));
+    } else {
+      doc.setFontSize(9); doc.text(T("El anexo no trae cantidades para este producto: sin gráficas ni comparación con bolsa."), M, y); y += 14;
+    }
+
+    salto(80);
+    titulo("Condiciones clave del pliego");
+    const cond = ctx.r.condiciones;
+    const filas = [...cond.garantias, ...cond.penalidades, cond.criterio, ...cond.especiales].filter((x) => x && x.v)
+      .map((x) => [x.t, x.v.length > 400 ? x.v.slice(0, 397) + "..." : x.v, x.pag != null ? `p. ${x.pag}` : "—"]);
+    tabla(["Tema", "Condición", "Pliego"], filas.length ? filas : [["—", "No indicado en el pliego", "—"]],
+      {columnStyles: {0: {cellWidth: 95, fontStyle: "bold"}, 2: {cellWidth: 40}}});
+
+    doc.setFontSize(7.5); doc.setTextColor(90);
+    const pie = T("Generado desde SICEP Explorer con datos públicos de SICEP y XM. Verifique en el pliego oficial.");
+    for (let i = 1; i <= doc.getNumberOfPages(); i++) { doc.setPage(i); doc.text(pie, M, doc.internal.pageSize.getHeight() - 20); }
+    doc.save(`${ctx.nombreBase}-resumen.pdf`);
+  }
+
+  window.ProductoExport = Object.assign(window.ProductoExport || {}, {cargarScript, datos, contexto, excel, pdf, HOJAS, CDN, avisos, nf, franja, conPag});
 })();
