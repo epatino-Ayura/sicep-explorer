@@ -38,11 +38,16 @@
   svg.perfil{width:100%;height:auto;color:var(--muted)}.ley{display:flex;flex-wrap:wrap;gap:12px;font-size:12px}
   .ley i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px}
   #tab-pliego,#tab-datos{overflow-wrap:anywhere}
+  .exp-bot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0 2px}
+  .exp-bot .exp{border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:6px;padding:4px 12px;font:inherit;font-size:13px;cursor:pointer}
+  .exp-bot .exp:disabled{opacity:.55;cursor:not-allowed}
+  .exp-msg{font-size:12px;color:#b3261e}
 </style></head><body>
 <header><a href="index.html">← Productos</a> &nbsp;·&nbsp; <a href="bolsa.html">Precio de bolsa</a></header>
 <div class="wrap" id="app">Cargando…</div>
 <script src="pliego.js"></script>
 <script src="tablero.js"></script>
+<script src="producto_calc.js"></script><script src="producto_export.js"></script>
 <script>
 const escH=t=>String(t??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const cid=new URLSearchParams(location.search).get("c");
@@ -110,6 +115,7 @@ Promise.all([fetch("data/convocatorias.json").then(r=>r.json()),fetch("data/prod
   const get=u=>fetch(u).then(r=>r.ok?r.json():null).catch(()=>null);
   Promise.all([get("data/pliegos/"+encodeURIComponent(cid)+".json"),get("data/bolsa_resumen.json")]).then(([pq,bolsa])=>{
     renderPliego(tp,pq,exp);
+    try{activarExport(tp,{conv:c,productos:P,paquete:pq,base:"data/"});}catch(e){console.error(e);}
     try{renderTablero(document.getElementById("tablero"),{conv:c,productos:P,paquete:pq,bolsa});}catch(e){console.error(e);}
   });
 })

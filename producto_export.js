@@ -10,6 +10,7 @@
   const HOJAS = ["Resumen", "Demanda horaria", "MWh mes y año", "Tarifa", "Bolsa", "Notas"];
   const CURVA = {plana_24h: "Plana 24 h", plana_franja: "Plana en franja", variable: "Variable"};
   const nf = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString("es-CO", {minimumFractionDigits: d, maximumFractionDigits: d}));
+  const pesos = (v, d = 0) => (v == null ? "—" : (v < 0 ? "-$ " : "$ ") + nf(Math.abs(v), d));
   const mwh3 = (v) => (typeof v === "number" ? Math.round(v * 1000) / 1000 : v);
   const cop0 = (v) => (typeof v === "number" ? Math.round(v) : v);
   const franja = (h) => `${String(h - 1).padStart(2, "0")}:00–${String(h - 1).padStart(2, "0")}:59`;
@@ -170,7 +171,7 @@
     document.body.appendChild(div);
     try {
       const g = window.echarts.init(div, null, {renderer: "canvas"});
-      g.setOption(Object.assign({animation: false, textStyle: {fontSize: 13}, grid: {left: 60, right: 16, top: 30, bottom: 30}}, opcion));
+      g.setOption(Object.assign({animation: false, textStyle: {fontSize: 20}, grid: {left: 100, right: 24, top: 70, bottom: 44}}, opcion));
       const url = g.getDataURL({type: "jpeg", pixelRatio: 2, backgroundColor: "#ffffff"});
       g.dispose();
       return url;
@@ -211,19 +212,19 @@
     tabla(null, [
       ["MWh totales (anexo)", nf(r.total_mwh), "Periodo", r.periodo || (r.obligacion ? `${r.obligacion.inicio} a ${r.obligacion.fin}` : "—")],
       ["Tipo de curva", (CURVA[r.tipo_curva] || r.tipo_curva || "—") + (r.franja ? ` (${r.franja})` : ""), "Horario", r.horario || "—"],
-      ["Precio adjudicado", r.precio == null ? "Sin adjudicar" : `$ ${nf(r.precio, 2)} /kWh`, "% adjudicado", r.pct_adjudicado == null ? "—" : `${nf(r.pct_adjudicado, 1)} %`],
+      ["Precio adjudicado", r.precio == null ? "Sin adjudicar" : `${pesos(r.precio, 2)} /kWh`, "% adjudicado", r.pct_adjudicado == null ? "—" : `${nf(r.pct_adjudicado, 1)} %`],
       ["Indexación", [r.indexacion.indice, r.indexacion.periodicidad, r.indexacion.base].filter(Boolean).join(" | ") || "No indicado en el pliego",
        "Tipo de contrato", r.tipo_contrato || "—"],
     ], {columnStyles: {0: {fontStyle: "bold", cellWidth: 95}, 2: {fontStyle: "bold", cellWidth: 85}}});
 
     if (ctx.dem) {
       const anual = C.anualDesde(ctx.dem), anios = Object.keys(anual).sort();
-      const fmtEje = {axisLabel: {formatter: (v) => Number(v).toLocaleString("es-CO")}};
-      const img1 = imagenGrafico({title: {text: "MWh por año", left: "left", textStyle: {fontSize: 14}},
-        xAxis: {type: "category", data: anios}, yAxis: Object.assign({type: "value"}, fmtEje), series: [{type: "bar", data: anios.map((a) => Math.round(anual[a])), itemStyle: {color: "#1f4e79"}}]});
+      const fmtEje = {axisLabel: {fontSize: 18, formatter: (v) => Number(v).toLocaleString("es-CO")}};
+      const img1 = imagenGrafico({title: {text: "MWh por año", left: "left", textStyle: {fontSize: 22}},
+        xAxis: {type: "category", data: anios, axisLabel: {fontSize: 18}}, yAxis: Object.assign({type: "value"}, fmtEje), series: [{type: "bar", data: anios.map((a) => Math.round(anual[a])), itemStyle: {color: "#1f4e79"}}]});
       const P = (ctx.q.perfiles && ctx.q.perfiles[anios[0]]) || ctx.q.perfil || {};
-      const img2 = imagenGrafico({title: {text: "Curva horaria típica (MWh/h)", left: "left", textStyle: {fontSize: 14}},
-        legend: {top: 0, right: 0}, xAxis: {type: "category", data: [...Array(24).keys()].map((h) => "H" + (h + 1))}, yAxis: Object.assign({type: "value"}, fmtEje),
+      const img2 = imagenGrafico({title: {text: "Curva horaria típica (MWh/h)", left: "left", textStyle: {fontSize: 22}},
+        legend: {top: 34, left: "left", textStyle: {fontSize: 18}, itemWidth: 24, itemHeight: 12}, xAxis: {type: "category", data: [...Array(24).keys()].map((h) => "H" + (h + 1)), axisLabel: {fontSize: 18, interval: 3}}, yAxis: Object.assign({type: "value"}, fmtEje),
         series: Object.entries(P).map(([t, v]) => ({type: "line", name: t, data: v, showSymbol: false}))});
       const ancho = (W - 2 * M - 10) / 2, alto = ancho * 280 / 640;
       salto(alto + 10);
@@ -236,8 +237,8 @@
       doc.setFontSize(8);
       doc.text(T(`Precio de bolsa de referencia: promedio horario ${ctx.ref.desde} a ${ctx.ref.hasta} por tipo de día. Pesos constantes, sin indexar.`), M, y); y += 8;
       tabla(["Año", "MWh", "Costo a bolsa", "Costo a precio adjudicado", "Diferencia", "Bolsa de la curva $/kWh"],
-        [...ctx.costo.filas, ctx.costo.total].map((x) => [x.anio, nf(x.mwh), "$ " + nf(x.costo_bolsa),
-          x.costo_adjudicado == null ? "Sin adjudicar" : "$ " + nf(x.costo_adjudicado), x.diferencia == null ? "—" : "$ " + nf(x.diferencia),
+        [...ctx.costo.filas, ctx.costo.total].map((x) => [x.anio, nf(x.mwh), pesos(x.costo_bolsa),
+          x.costo_adjudicado == null ? "Sin adjudicar" : pesos(x.costo_adjudicado), x.diferencia == null ? "—" : pesos(x.diferencia),
           nf(x.precio_bolsa_curva, 2)]));
     } else {
       doc.setFontSize(9); doc.text(T("El anexo no trae cantidades para este producto: sin gráficas ni comparación con bolsa."), M, y); y += 14;
@@ -257,5 +258,27 @@
     doc.save(`${ctx.nombreBase}-resumen.pdf`);
   }
 
+    function activarExport(el, d) {
+    if (!el || el._expActivo) { if (el) el._expDatos = d; return; }
+    el._expActivo = true; el._expDatos = d;
+    el.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("button.exp");
+      if (!btn || btn.disabled || !el.contains(btn)) return;
+      const D = el._expDatos, n = Number(btn.dataset.n), fmt = btn.dataset.fmt;
+      const msg = btn.parentElement.querySelector(".exp-msg"), texto = btn.textContent;
+      btn.disabled = true; btn.textContent = "Generando…"; if (msg) msg.textContent = "";
+      try {
+        const extra = await datos(D.base || "data/");
+        await new Promise((ok) => setTimeout(ok, 0));   // deja pintar "Generando…"
+        const ctx = contexto(D.conv, D.productos, D.paquete, n, extra);
+        await (fmt === "pdf" ? pdf(ctx) : excel(ctx));
+      } catch (e) {
+        console.error(e);
+        if (msg) msg.textContent = (e && e.message && e.message.startsWith("No se pudo")) ? e.message.replace(/ https?:\S+/, " la librería (sin conexión)") + ". Intente de nuevo."
+          : "No se pudo generar el archivo: " + (e && e.message ? e.message : e);
+      } finally { btn.disabled = false; btn.textContent = texto; }
+    });
+  }
+  window.activarExport = activarExport;
   window.ProductoExport = Object.assign(window.ProductoExport || {}, {cargarScript, datos, contexto, excel, pdf, HOJAS, CDN, avisos, nf, franja, conPag});
 })();

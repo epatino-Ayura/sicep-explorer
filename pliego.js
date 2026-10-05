@@ -71,6 +71,11 @@
       </table>
       ${q && q.perfil ? `<div class="hint">Perfil horario promedio ${esc(q.perfil_anio)} (MWh/h)</div>${grafico(q.perfil)}` : ""}
       ${anual ? `<details><summary>MWh por año</summary><table><thead><tr><th>Año</th><th>MWh</th></tr></thead><tbody>${anual}</tbody></table></details>` : ""}
+      <div class="exp-bot">
+        <button class="exp" data-n="${num}" data-fmt="pdf" title="Resumen gerencial en PDF">PDF</button>
+        <button class="exp" data-n="${num}" data-fmt="xlsx" ${q && q.total_mwh ? 'title="Excel con demanda horaria, MWh, tarifa y bolsa"' : 'disabled title="El anexo no trae cantidades para este producto"'}>Excel</button>
+        <span class="exp-msg" aria-live="polite"></span>
+      </div>
       ${fa}
     </div>`;
   }
