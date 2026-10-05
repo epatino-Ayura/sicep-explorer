@@ -23,7 +23,7 @@
     return `<div class="kpis">
       ${U.kpi("Convocatorias", nf(distintos("convocatoria"), 0), "", "k-conv")}
       ${U.kpi("Productos", nf(P.length, 0), "", "k-prod")}
-      ${U.kpi("GWh demandados", nf(dem, 0), "", "k-dem")}
+      ${U.kpi("GWh demandados", nf(dem, 0), "energía total de los contratos", "k-dem")}
       ${U.kpi("GWh adjudicados", nf(adj, 0), pct == null ? "" : nf(pct, 0) + " % de lo demandado", "k-adj")}
       ${U.kpi("Precio adjudicado", precio == null ? "—" : "$ " + nf(precio, 2), "$/kWh, promedio ponderado", "k-precio")}
       ${U.kpi("Compradores", nf(distintos("agente_comprador"), 0), "", "k-comp")}</div>`;
@@ -113,7 +113,7 @@
     const defs = [
       ["Precio adjudicado por año vs bolsa", "Promedio ponderado por GWh adjudicados · línea: promedio de bolsa del año", gPrecioAnio(P, res)],
       ["Curva horaria agregada vs bolsa", "", gCurva(P, d.curvas, res, pers)],
-      ["Energía por año", "GWh demandados vs adjudicados", gEnergia(P)],
+      ["Energía por año", "GWh demandados vs adjudicados · energía total de cada contrato (no anual)", gEnergia(P)],
       ["Precio adjudicado por comprador", "", gCompradores(P)]];
     el.innerHTML = `<section class="tb pn" aria-label="Panel de la selección">
       ${kpis(P)}
