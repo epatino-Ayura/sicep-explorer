@@ -11,6 +11,9 @@
   const CURVA = {plana_24h: "Plana 24 h", plana_franja: "Plana en franja", variable: "Variable"};
   const nf = (v, d = 0) => (v == null ? "—" : Number(v).toLocaleString("es-CO", {minimumFractionDigits: d, maximumFractionDigits: d}));
   const pesos = (v, d = 0) => (v == null ? "—" : (v < 0 ? "-$ " : "$ ") + nf(Math.abs(v), d));
+  const ahorro = (x) => (x.costo_adjudicado == null ? null : x.costo_bolsa - x.costo_adjudicado);
+  const NOTA_AHORRO = "Ahorro positivo = el precio adjudicado resulta más barato que la bolsa de referencia. Ambos costos se calculan sobre el 100 % de la demanda del anexo, no sobre la cantidad adjudicada.";
+  const NOTA_IDX = "Precios sin indexar: precio adjudicado en pesos de su mes base; bolsa en pesos corrientes de los últimos 12 meses.";
   const mwh3 = (v) => (typeof v === "number" ? Math.round(v * 1000) / 1000 : v);
   const cop0 = (v) => (typeof v === "number" ? Math.round(v) : v);
   const franja = (h) => `${String(h - 1).padStart(2, "0")}:00–${String(h - 1).padStart(2, "0")}:59`;
@@ -128,9 +131,10 @@
     for (let h = 1; h <= 24; h++) f.push([h, franja(h), ref.ordinario[h - 1], ref.sabado[h - 1], ref.festivo[h - 1]]);
     f.push([]);
     if (!ctx.costo) { f.push(["Sin comparación: el producto no tiene cantidades."]); return f; }
-    f.push(["Año", "MWh", "Costo a bolsa (COP)", "Costo a precio adjudicado (COP)", "Diferencia (COP)", "Precio bolsa de la curva ($/kWh)"]);
+    f.push(["Año", "MWh", "Costo a bolsa (COP)", "Costo a precio adjudicado (COP)", "Ahorro frente a bolsa (COP)", "Precio bolsa de la curva ($/kWh)"]);
     [...ctx.costo.filas, ctx.costo.total].forEach((x) =>
-      f.push([x.anio, mwh3(x.mwh), cop0(x.costo_bolsa), cop0(x.costo_adjudicado ?? "Sin adjudicar"), cop0(x.diferencia ?? "—"), x.precio_bolsa_curva]));
+      f.push([x.anio, mwh3(x.mwh), cop0(x.costo_bolsa), cop0(x.costo_adjudicado ?? "Sin adjudicar"), cop0(ahorro(x) ?? "—"), x.precio_bolsa_curva]));
+    f.push([], [NOTA_AHORRO]);
     return f;
   }
 
@@ -140,14 +144,25 @@
       ["Demanda horaria: la energía de cada mes del anexo se reparte entre sus días y horas según el perfil horario del año y el tipo de día (laborable, sábado, domingo/festivo, festivos de Colombia). La suma de cada mes es exactamente la del anexo."],
       ["Hora 1 = 00:00–00:59 (convención XM)."],
       ["Precio de bolsa de referencia: promedio horario de los últimos 12 meses disponibles por tipo de día (datos XM)."],
-      ["Costos en pesos constantes, sin indexar. Costo = MWh × 1.000 × precio ($/kWh)."],
+      [NOTA_IDX + " Costo = MWh × 1.000 × precio ($/kWh)."],
+      [NOTA_AHORRO],
       ["Tarifa: solo el precio adjudicado publicado por SICEP y la indexación tal como la publica el pliego."],
       [],
     ];
-    (ctx.dem ? ctx.dem.notas : []).concat(ctx.costo ? ctx.costo.notas : []).forEach((x) => n.push([x]));
+    const av0 = avisos(ctx);
+    (ctx.dem ? ctx.dem.notas.filter((x) => !av0.includes(x)) : []).concat(ctx.costo ? ctx.costo.notas : []).forEach((x) => n.push([x]));
     avisos(ctx).forEach((x) => n.push(["Aviso: " + x]));
     n.push([], ["Generado desde SICEP Explorer con datos públicos de SICEP y XM. Verifique en el pliego oficial."]);
     return n;
+  }
+
+  // Aplica un formato numérico a un rango A1 (solo celdas numéricas).
+  function formato(X, ws, rango, z) {
+    const r = X.utils.decode_range(rango);
+    for (let R = r.s.r; R <= r.e.r; R++) for (let c = r.s.c; c <= r.e.c; c++) {
+      const cel = ws[X.utils.encode_cell({r: R, c})];
+      if (cel && cel.t === "n") cel.z = z;
+    }
   }
 
   async function excel(ctx) {
@@ -158,7 +173,17 @@
     hojas.forEach((fn, i) => {
       const ws = X.utils.aoa_to_sheet(fn(ctx));
       if (i === 1) Object.keys(ws).forEach((k) => { if (/^E\d+$/.test(k) && k !== "E1" && ws[k].t === "n") ws[k].z = "0.000"; });
-      ws["!cols"] = i === 1 ? [{wch: 12}, {wch: 6}, {wch: 13}, {wch: 14}, {wch: 12}] : [{wch: 32}, {wch: 40}, {wch: 50}];
+      if (i === 0) { formato(X, ws, "B12:B14", "#,##0.000"); formato(X, ws, "B16", "#,##0.00"); }
+      if (i === 2) formato(X, ws, "B2:N40", "#,##0.000");
+      if (i === 3) formato(X, ws, "B2", "#,##0.00");
+      if (i === 4) {
+        formato(X, ws, "C3:E26", "#,##0.00");
+        if (ctx.costo) {
+          const u = 29 + ctx.costo.filas.length;   // fila de Total (1-based)
+          formato(X, ws, `B29:B${u}`, "#,##0.000"); formato(X, ws, `C29:E${u}`, "#,##0"); formato(X, ws, `F29:F${u}`, "#,##0.00");
+        }
+      }
+      ws["!cols"] = i === 1 ? [{wch: 12}, {wch: 6}, {wch: 13}, {wch: 14}, {wch: 12}] : i === 4 ? [{wch: 14}, {wch: 18}, {wch: 18}, {wch: 18}, {wch: 18}, {wch: 18}] : [{wch: 32}, {wch: 40}, {wch: 50}];
       X.utils.book_append_sheet(wb, ws, HOJAS[i]);
     });
     X.writeFile(wb, `${ctx.nombreBase}.xlsx`, {compression: true});
@@ -198,7 +223,7 @@
     doc.setFont("helvetica", "bold"); doc.setFontSize(15);
     doc.text(T(`${r.conv} - ${r.nombre}`), M, y); y += 16;
     doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-    doc.text(T(`${r.comprador || "—"} | ${r.mercado || "—"} | ${r.estado || "—"} | FNCER: ${r.fncer ? "Sí" : "No"} | Generado ${new Date().toISOString().slice(0, 10)}`), M, y);
+    doc.text(T(`${r.comprador || "—"} | ${r.mercado || "—"} | ${r.estado || "—"} | FNCER: ${r.fncer ? "Sí" : "No"} | Generado ${new Date().toLocaleDateString("sv-SE")}`), M, y);
     y += 14;
 
     const av = avisos(ctx);
@@ -215,7 +240,7 @@
       ["Precio adjudicado", r.precio == null ? "Sin adjudicar" : `${pesos(r.precio, 2)} /kWh`, "% adjudicado", r.pct_adjudicado == null ? "—" : `${nf(r.pct_adjudicado, 1)} %`],
       ["Indexación", [r.indexacion.indice, r.indexacion.periodicidad, r.indexacion.base].filter(Boolean).join(" | ") || "No indicado en el pliego",
        "Tipo de contrato", r.tipo_contrato || "—"],
-    ], {columnStyles: {0: {fontStyle: "bold", cellWidth: 95}, 2: {fontStyle: "bold", cellWidth: 85}}});
+    ], {columnStyles: {0: {fontStyle: "bold", cellWidth: 95}, 2: {fontStyle: "bold", cellWidth: 85}, 3: {cellWidth: 150}}});
 
     if (ctx.dem) {
       const anual = C.anualDesde(ctx.dem), anios = Object.keys(anual).sort();
@@ -235,11 +260,14 @@
       salto(120);
       titulo("Comparación con bolsa");
       doc.setFontSize(8);
-      doc.text(T(`Precio de bolsa de referencia: promedio horario ${ctx.ref.desde} a ${ctx.ref.hasta} por tipo de día. Pesos constantes, sin indexar.`), M, y); y += 8;
-      tabla(["Año", "MWh", "Costo a bolsa", "Costo a precio adjudicado", "Diferencia", "Bolsa de la curva $/kWh"],
+      doc.text(T(`Precio de bolsa de referencia: promedio horario ${ctx.ref.desde} a ${ctx.ref.hasta} por tipo de día. ${NOTA_IDX}`), M, y); y += 8;
+      tabla(["Año", "MWh", "Costo a bolsa", "Costo a precio adjudicado", "Ahorro frente a bolsa", "Bolsa de la curva $/kWh"],
         [...ctx.costo.filas, ctx.costo.total].map((x) => [x.anio, nf(x.mwh), pesos(x.costo_bolsa),
-          x.costo_adjudicado == null ? "Sin adjudicar" : pesos(x.costo_adjudicado), x.diferencia == null ? "—" : pesos(x.diferencia),
+          x.costo_adjudicado == null ? "Sin adjudicar" : pesos(x.costo_adjudicado), pesos(ahorro(x)),
           nf(x.precio_bolsa_curva, 2)]));
+      doc.setFontSize(8); doc.setFont("helvetica", "italic");
+      doc.splitTextToSize(T(NOTA_AHORRO), W - 2 * M).forEach((l) => { salto(10); doc.text(l, M, y); y += 10; });
+      doc.setFont("helvetica", "normal"); y += 4;
     } else {
       doc.setFontSize(9); doc.text(T("El anexo no trae cantidades para este producto: sin gráficas ni comparación con bolsa."), M, y); y += 14;
     }
@@ -258,7 +286,7 @@
     doc.save(`${ctx.nombreBase}-resumen.pdf`);
   }
 
-    function activarExport(el, d) {
+  function activarExport(el, d) {
     if (!el || el._expActivo) { if (el) el._expDatos = d; return; }
     el._expActivo = true; el._expDatos = d;
     el.addEventListener("click", async (ev) => {
