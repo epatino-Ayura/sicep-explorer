@@ -59,13 +59,16 @@
     return Math.round((new Date(+m[1], +m[2] - 1, +m[3]) - hoy) / 864e5);
   }
 
+  // Tarjeta de KPI: n y s ya vienen formateados (HTML); l se escapa.
+  const kpi = (l, n, s, cls) => `<div class="kpi ${cls || ""}"><div class="l">${esc(l)}</div><div class="n ${/^t/.test(cls || "") ? "t" : ""}">${n}</div>${s ? `<div class="s">${s}</div>` : ""}</div>`;
+
   // f = {sel: Set|null, total: n} cuando hay filtro de productos: las cifras salen de los productos marcados.
   function kpis(c, P, f) {
     const suma = k => P.reduce((s, p) => num(p[k]) == null ? s : (s ?? 0) + num(p[k]), null);
     const dem = f ? suma("energia_demandada_gwh") : num(c.energia_demandada_gwh);
     const adj = f ? suma("energia_adjudicada_gwh") : num(c.energia_adjudicada_gwh);
     const pct = dem && adj != null ? adj / dem * 100 : null;
-    const k = (l, n, s, cls) => `<div class="kpi ${cls || ""}"><div class="l">${esc(l)}</div><div class="n ${/^t/.test(cls || "") ? "t" : ""}">${n}</div>${s ? `<div class="s">${s}</div>` : ""}</div>`;
+    const k = kpi;
     const t = (l, v) => `<div class="kpi"><div class="l">${esc(l)}</div><div class="n t">${esc(v || "—")}</div></div>`;
     let ini = anio(c.inicio_suministro), fin = anio(c.fin_suministro), precio = num(c.precio_prom_ponderado);
     if (f) {
@@ -155,6 +158,11 @@
     const N = usados.length, total = Math.max(M, N);
     const DIA = {ordinario: "día ordinario", sabado: "sábado", festivo: "domingo/festivo", festivo_lunes: "lunes festivo"};
     const sub = `Suma de ${N} de ${total} productos · ${DIA[tipo] || tipo}` + (N < total ? " (los demás sin curva en el anexo)" : "");
+    return {opt: optCurva(dem, tipo, bolsa, pers), sub: sub + (pers && pers.length ? ` · bolsa del mismo tipo de día` : "")};
+  }
+
+  // Curva horaria de demanda (MWh/h, 24 valores) contra la bolsa: perfil de 12 meses por defecto o los periodos elegidos.
+  function optCurva(dem, tipo, bolsa, pers) {
     const bp = !pers && bolsa && Array.isArray(bolsa.perfil_12m) && bolsa.perfil_12m.length === 24 ? bolsa.perfil_12m : null;
     const horas = Array.from({length: 24}, (_, i) => i + 1);
     const o = baseOpt();
@@ -187,7 +195,7 @@
       return `<b>Hora ${h}</b> (${hh(h - 1)}:00–${hh(h - 1)}:59)<br>` + ps.map(p =>
         `${p.marker}${esc(p.seriesName.replace(/ \(.*/, ""))}: <b>${p.value == null ? "—" : nf(p.value, p.seriesIndex ? 1 : 2)}</b> ${p.seriesIndex ? "$/kWh" : "MWh/h"}`).join("<br>");
     };
-    return {opt: o, sub: sub + (pers && pers.length ? ` · bolsa del mismo tipo de día` : "")};
+    return o;
   }
 
   function mesCercano(mensual, fecha) {
@@ -315,12 +323,94 @@
     } catch (e) { /* sin historial: el filtro sigue funcionando en la página */ }
   }
 
+  // ECharts se carga con defer: si aún no está, volver a pintar cuando termine la carga de la página.
+  function esperarEcharts(el, fn) {
+    if (typeof window.echarts === "undefined" && document.readyState !== "complete" && !el._tbEsperando) {
+      el._tbEsperando = true;
+      window.addEventListener("load", fn, {once: true});
+    }
+  }
+
+  // Periodos de bolsa elegidos (fichas) -> {pers, estadoB}. Carga bolsa.json al primer uso y vuelve a pintar con redibujar().
+  // c es la convocatoria (solo para la ficha "cierre"); el guarda el estado de carga (_tbB, _tbBErr, _tbBCargando).
+  function periodosBolsa(el, toks, c, bolsa, base, redibujar) {
+    let pers = null, estadoB = "";
+    if (!toks.length || !bolsa) return {pers, estadoB};
+    if (el._tbB && el._tbB.base === base) {
+      pers = toks.map(t => periodo(t, c || {}, bolsa)).filter(Boolean).map(q => Object.assign(q, {est: estadistica(el._tbB.datos, q.desde, q.hasta)}))
+        .filter(q => q.est.dias);
+      if (!pers.length) { pers = null; estadoB = `<span class="err">Sin datos de bolsa para el periodo elegido.</span>`; }
+    } else if (el._tbBErr) {
+      estadoB = `<span class="err">No se pudo cargar el histórico de bolsa. Intente de nuevo.</span>`;
+    } else {
+      estadoB = `<span class="cargando">Cargando histórico de bolsa…</span>`;
+      if (!el._tbBCargando) {
+        el._tbBCargando = true;
+        cargarBolsa(base).then(B => { el._tbB = {base, datos: B}; }).catch(() => { el._tbBErr = true; })
+          .finally(() => { el._tbBCargando = false; redibujar(); });
+      }
+    }
+    return {pers, estadoB};
+  }
+
+  // Botonera "Bolsa para comparar" (Predeterminado, [Mes de cierre], 12 meses, años, rango de meses).
+  function htmlFiltroBolsa(bolsa, toks, estadoB, conCierre = true) {
+    const anios = bolsa && bolsa.desde && bolsa.hasta ? Array.from({length: +bolsa.hasta.slice(0, 4) - +bolsa.desde.slice(0, 4) + 1}, (_, i) => String(+bolsa.desde.slice(0, 4) + i)) : [];
+    const mesesB = bolsa && bolsa.mensual ? Object.keys(bolsa.mensual).sort() : [];
+    if (!bolsa || !mesesB.length) return "";
+    const rango = toks.find(t => t.includes(":")) || "";
+    const [rd, rh] = rango ? rango.split(":") : [mesesB[Math.max(0, mesesB.length - 12)] || "", mesesB[mesesB.length - 1] || ""];
+    const op = (v, sel) => `<option value="${esc(v)}"${v === sel ? " selected" : ""}>${esc(mesTxt(v))}</option>`;
+    const bt = (v, txt) => `<button type="button" data-b="${esc(v)}" aria-pressed="${toks.includes(v)}">${esc(txt)}</button>`;
+    return `<div class="filtro bolsa" role="group" aria-label="Periodo del precio de bolsa"><span class="fl">Bolsa para comparar:</span>
+      <button type="button" data-b="" aria-pressed="${!toks.length}">Predeterminado</button>
+      ${conCierre ? bt("cierre", "Mes de cierre") : ""}${bt("12m", "Últimos 12 meses")}<span class="sep"></span>
+      ${anios.map(a => bt(a, a)).join("")}<span class="sep"></span>
+      <span class="fl">Rango:</span><select data-r="d" aria-label="Desde">${mesesB.map(m => op(m, rd)).join("")}</select>
+      <select data-r="h" aria-label="Hasta">${mesesB.map(m => op(m, rh)).join("")}</select>
+      <button type="button" data-b="rango" aria-pressed="${!!rango}">${rango ? "Quitar rango" : "Aplicar rango"}</button>
+      ${estadoB}</div>`;
+  }
+
+  // Clic en un botón de la botonera de bolsa: nuevas fichas (y las deja en el enlace, ?b=).
+  function clicBolsa(el, toks, v) {
+    let t = toks.slice();
+    if (!v) t = [];
+    else if (v === "rango") {
+      const r = t.find(x => x.includes(":"));
+      t = t.filter(x => !x.includes(":"));
+      if (!r) {
+        const dd = el.querySelector('select[data-r="d"]').value, hh = el.querySelector('select[data-r="h"]').value;
+        t.push(dd <= hh ? `${dd}:${hh}` : `${hh}:${dd}`);
+      }
+    } else t = t.includes(v) ? t.filter(x => x !== v) : t.concat(v);
+    el._tbBErr = false;
+    selAUrl(null, "b", t);
+    return t;
+  }
+
+  // Tarjetas de gráficos: defs = [[título, subtítulo, {opt}|{aviso, sub}], ...]; pref = prefijo de los id.
+  const htmlGraficos = (defs, pref) => defs.map(([t, s, r], i) => `<div class="gc"><h4>${esc(t)}</h4>${(r.sub || s) ? `<div class="sub">${esc(r.sub || s)}</div>` : ""}
+      ${r.aviso ? `<div class="aviso">${esc(r.aviso)}</div>` : `<div class="plot" id="${pref}${i}" role="img" aria-label="${esc(t)}"></div>`}</div>`).join("");
+
+  function pintarGraficos(el, defs, pref) {
+    (el._tbCharts || []).forEach(ch => ch.dispose());
+    el._tbCharts = [];
+    defs.forEach(([, , r], i) => {
+      if (!r.opt) return;
+      const ch = echarts.init(el.querySelector("#" + pref + i));
+      ch.setOption(r.opt);
+      el._tbCharts.push(ch);
+    });
+    if (!el._tbRO && window.ResizeObserver) {
+      el._tbRO = new ResizeObserver(() => (el._tbCharts || []).forEach(ch => ch.resize()));
+      el._tbRO.observe(el);
+    }
+  }
+
   function renderTablero(el, d) {
     estilo();
-    if (typeof window.echarts === "undefined" && document.readyState !== "complete" && !el._tbEsperando) {
-      el._tbEsperando = true;  // ECharts se carga con defer: esperar a que termine la carga de la página
-      window.addEventListener("load", () => renderTablero(el, d), {once: true});
-    }
+    esperarEcharts(el, () => renderTablero(el, d));
     const {conv: c, productos: P0, paquete: paq0, bolsa} = d || {};
     if (!c || !el) return;
     el._tbDatos = d;
@@ -337,37 +427,8 @@
     const base = d.base || "data/";
     if (!el._tbBolsa) el._tbBolsa = bolsaDeUrl();
     const toks = el._tbBolsa;
-    let pers = null, estadoB = "";
-    if (toks.length && bolsa) {
-      if (el._tbB && el._tbB.base === base) {
-        pers = toks.map(t => periodo(t, c, bolsa)).filter(Boolean).map(q => Object.assign(q, {est: estadistica(el._tbB.datos, q.desde, q.hasta)}))
-          .filter(q => q.est.dias);
-        if (!pers.length) { pers = null; estadoB = `<span class="err">Sin datos de bolsa para el periodo elegido.</span>`; }
-      } else if (el._tbBErr) {
-        estadoB = `<span class="err">No se pudo cargar el histórico de bolsa. Intente de nuevo.</span>`;
-      } else {
-        estadoB = `<span class="cargando">Cargando histórico de bolsa…</span>`;
-        if (!el._tbBCargando) {
-          el._tbBCargando = true;
-          cargarBolsa(base).then(B => { el._tbB = {base, datos: B}; }).catch(() => { el._tbBErr = true; })
-            .finally(() => { el._tbBCargando = false; renderTablero(el, el._tbDatos); });
-        }
-      }
-    }
-    const anios = bolsa && bolsa.desde && bolsa.hasta ? Array.from({length: +bolsa.hasta.slice(0, 4) - +bolsa.desde.slice(0, 4) + 1}, (_, i) => String(+bolsa.desde.slice(0, 4) + i)) : [];
-    const mesesB = bolsa && bolsa.mensual ? Object.keys(bolsa.mensual).sort() : [];
-    const rango = toks.find(t => t.includes(":")) || "";
-    const [rd, rh] = rango ? rango.split(":") : [mesesB[Math.max(0, mesesB.length - 12)] || "", mesesB[mesesB.length - 1] || ""];
-    const op = (v, sel) => `<option value="${esc(v)}"${v === sel ? " selected" : ""}>${esc(mesTxt(v))}</option>`;
-    const bt = (v, txt) => `<button type="button" data-b="${esc(v)}" aria-pressed="${toks.includes(v)}">${esc(txt)}</button>`;
-    const filtroB = bolsa && mesesB.length ? `<div class="filtro bolsa" role="group" aria-label="Periodo del precio de bolsa"><span class="fl">Bolsa para comparar:</span>
-      <button type="button" data-b="" aria-pressed="${!toks.length}">Predeterminado</button>
-      ${bt("cierre", "Mes de cierre")}${bt("12m", "Últimos 12 meses")}<span class="sep"></span>
-      ${anios.map(a => bt(a, a)).join("")}<span class="sep"></span>
-      <span class="fl">Rango:</span><select data-r="d" aria-label="Desde">${mesesB.map(m => op(m, rd)).join("")}</select>
-      <select data-r="h" aria-label="Hasta">${mesesB.map(m => op(m, rh)).join("")}</select>
-      <button type="button" data-b="rango" aria-pressed="${!!rango}">${rango ? "Quitar rango" : "Aplicar rango"}</button>
-      ${estadoB}</div>` : "";
+    const {pers, estadoB} = periodosBolsa(el, toks, c, bolsa, base, () => renderTablero(el, el._tbDatos));
+    const filtroB = htmlFiltroBolsa(bolsa, toks, estadoB);
     const filtro = nums.length > 1 ? `<div class="filtro prods" role="group" aria-label="Filtrar por producto"><span class="fl">Productos:</span>
       <button type="button" data-p="" aria-pressed="${!filtrando}">Todos</button>
       ${nums.map(n => `<button type="button" data-p="${esc(n)}" aria-pressed="${filtrando && sel.has(n)}">P${esc(n)}</button>`).join("")}</div>` : "";
@@ -378,8 +439,7 @@
       ["MWh por año", "Energía por producto según el anexo de cantidades", gAnual(paquete)],
       ["Curva horaria vs precio de bolsa", "Demanda promedio por hora y precio de bolsa de los últimos 12 meses", gCurva(paquete, bolsa, P, pers)],
       ["Precio adjudicado vs bolsa", "", gPrecio(P, c, bolsa, pers)]].filter(x => x[2]);
-    const gr = defs.map(([t, s, r], i) => `<div class="gc"><h4>${esc(t)}</h4>${(r.sub || s) ? `<div class="sub">${esc(r.sub || s)}</div>` : ""}
-      ${r.aviso ? `<div class="aviso">${esc(r.aviso)}</div>` : `<div class="plot" id="tb-g${i}" role="img" aria-label="${esc(t)}"></div>`}</div>`).join("");
+    const gr = htmlGraficos(defs, "tb-g");
     el.innerHTML = `<section class="tb" aria-label="Tablero de la convocatoria">
       ${kpis(c, P, filtrando ? {total: nums.length} : null)}
       ${filtro}
@@ -393,19 +453,7 @@
         const b = ev.target.closest(".tb .filtro button");
         if (!b || !el.contains(b)) return;
         if (b.dataset.b !== undefined) {
-          let t = el._tbBolsa.slice();
-          const v = b.dataset.b;
-          if (!v) t = [];
-          else if (v === "rango") {
-            const r = t.find(x => x.includes(":"));
-            t = t.filter(x => !x.includes(":"));
-            if (!r) {
-              const dd = el.querySelector('.tb select[data-r="d"]').value, hh = el.querySelector('.tb select[data-r="h"]').value;
-              t.push(dd <= hh ? `${dd}:${hh}` : `${hh}:${dd}`);
-            }
-          } else t = t.includes(v) ? t.filter(x => x !== v) : t.concat(v);
-          el._tbBolsa = t; el._tbBErr = false;
-          selAUrl(null, "b", t);
+          el._tbBolsa = clicBolsa(el, el._tbBolsa, b.dataset.b);
           renderTablero(el, el._tbDatos);
           return;
         }
@@ -417,18 +465,11 @@
       });
     }
     if (!hayEcharts) return;
-    (el._tbCharts || []).forEach(ch => ch.dispose());
-    el._tbCharts = [];
-    defs.forEach(([, , r], i) => {
-      if (!r.opt) return;
-      const ch = echarts.init(el.querySelector("#tb-g" + i));
-      ch.setOption(r.opt);
-      el._tbCharts.push(ch);
-    });
-    if (!el._tbRO && window.ResizeObserver) {
-      el._tbRO = new ResizeObserver(() => (el._tbCharts || []).forEach(ch => ch.resize()));
-      el._tbRO.observe(el);
-    }
+    pintarGraficos(el, defs, "tb-g");
   }
   window.renderTablero = renderTablero;
+  // Piezas compartidas con el panel de la página principal (panel.js).
+  window.TableroUtil = {esc, nf, fx, num, precioOk, compacto, COL, PALETA, BOLSA_COL, FUENTE, MESES, estilo, kpi, baseOpt, eje, valor,
+    optCurva, periodo, estadistica, cargarBolsa, bolsaDeUrl, selAUrl, periodosBolsa, htmlFiltroBolsa, clicBolsa,
+    htmlGraficos, pintarGraficos, esperarEcharts};
 })();
