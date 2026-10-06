@@ -25,6 +25,7 @@
   .chips .fl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;min-width:52px}
   .chips button{border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:999px;padding:4px 12px;font-weight:500;font-size:13px}
   .na{color:var(--muted)}
+  .chips button.cero{opacity:.45}
   [hidden]{display:none!important}
   .chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
   #panel{margin-top:6px}
@@ -108,7 +109,9 @@ function chips(id,items,sel){  // items: [[valor, texto]]
   el.onclick=ev=>{const b=ev.target.closest("button");if(!b)return;const v=b.dataset.v;
     sel.has(v)?sel.delete(v):sel.add(v);b.setAttribute("aria-pressed",sel.has(v));aplicar();};
 }
-function filtrar(){
+// ign: filtros a ignorar ("c" curva, "d" duración, "sc" ocultar sin curva) — para contar cada botón con el resto
+// de la selección (conteos que cambian con año, estado, comprador, etc.).
+function filtrar(ign={}){
   const q=$("q").value.toLowerCase(),ag=$("agente").value,m=$("mercado").value,adj=$("adj").checked;
   const est=new Set(ESTADOS.filter(e=>selE.has(e[0])).map(e=>e[1]));
   return DATA.filter(r=>{
@@ -118,9 +121,9 @@ function filtrar(){
     if(ag&&r.agente_comprador!==ag)return false;
     if(m&&r.mercado!==m)return false;
     if(adj&&r.energia_adjudicada_gwh==null)return false;
-    if(sinCurvaOculta()&&SIN_CURVA.has(r._curva))return false;
-    if(selC.size&&!selC.has(r._curva))return false;
-    if(selD.size&&!selD.has(duracion(r.anios_contrato)))return false;
+    if(!ign.sc&&sinCurvaOculta()&&SIN_CURVA.has(r._curva))return false;
+    if(!ign.c&&selC.size&&!selC.has(r._curva))return false;
+    if(!ign.d&&selD.size&&!selD.has(duracion(r.anios_contrato)))return false;
     return true;});
 }
 // Filtros en el enlace: ?e=adj,abi&a=2025,2026&ag=..&m=..&q=..&sa=1 (el panel agrega b= para la bolsa)
@@ -149,8 +152,22 @@ function verChipsSinCurva(){
   const oc=sinCurvaOculta();
   $("chips-c").querySelectorAll("button").forEach(b=>{if(SIN_CURVA.has(b.dataset.v)){b.hidden=oc;if(oc){selC.delete(b.dataset.v);b.setAttribute("aria-pressed","false");}}});
 }
+// Pone en cada botón de Curva y Duración cuántos productos hay con el resto de filtros aplicados.
+function contarChips(){
+  const nf=x=>x.toLocaleString("es");
+  const baseC=filtrar({c:1,sc:1}), cC={};
+  baseC.forEach(r=>{cC[r._curva]=(cC[r._curva]||0)+1;});
+  $("chips-c").querySelectorAll("button").forEach(b=>{const k=b.dataset.v,n=cC[k]||0;
+    b.textContent=`${CURVA_TXT[k]} (${nf(n)})`;b.classList.toggle("cero",!n&&!selC.has(k));});
+  if(TIPOS)$("n-sc").textContent=`(${nf(baseC.filter(r=>SIN_CURVA.has(r._curva)).length)})`;
+  const baseD=filtrar({d:1}), cD={};
+  baseD.forEach(r=>{const k=duracion(r.anios_contrato);if(k)cD[k]=(cD[k]||0)+1;});
+  $("chips-d").querySelectorAll("button").forEach(b=>{const k=b.dataset.v,n=cD[k]||0,t=(DURACION.find(d=>d[0]===k)||[,k])[1];
+    b.textContent=`${t} (${nf(n)})`;b.classList.toggle("cero",!n&&!selD.has(k));});
+}
 function aplicar(){
   verChipsSinCurva();
+  contarChips();
   view=filtrar();aUrl();
   try{if(window.renderPanel)renderPanel($("panel"),{productos:view,curvas:CURVAS,bolsaResumen:BOLSA_RES,base:"data/"});}catch(e){console.error(e);}
   render(1);
