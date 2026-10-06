@@ -4,6 +4,9 @@
   const n0 = v => v == null ? "—" : Number(v).toLocaleString("es", {maximumFractionDigits: 0});
   const CURVA = {plana_24h: "Plana 24 h", plana_franja: "Plana en franja", variable: "Curva variable", no_indicado: "No indicado"};
   const DIA = {ordinario: "Ordinario", sabado: "Sábado", festivo: "Domingo/festivo", festivo_lunes: "Lunes festivo"};
+  // Sin resumen de condiciones: las históricas (cerradas 2020–2024) no se resumen; las demás quedan pendientes.
+  const SIN_RESUMEN = "Condiciones pendientes de resumen. Se muestran las cantidades del anexo.";
+  const SIN_RESUMEN_HIST = "Resumen de condiciones no disponible para convocatorias anteriores a 2025. Se muestran las cantidades del anexo.";
   const COL = {ordinario: "#2E6FB0", sabado: "#1E8E5A", festivo: "#C2410C", festivo_lunes: "#7C3AED"};
 
   function fuente(d, exp) {
@@ -120,7 +123,7 @@
     const lista = (arr, exp) => arr && arr.length ? `<ul>${arr.map(d => `<li>${val(d, exp)}</li>`).join("")}</ul>` : '<span class="na">No indicado en el pliego</span>';
     el.innerHTML = `
       ${alertas}
-      ${r ? `<p class="ejec">${esc(r.resumen_ejecutivo)}</p>` : '<div class="hint">Condiciones pendientes de resumen. Se muestran las cantidades del anexo.</div>'}
+      ${r ? `<p class="ejec">${esc(r.resumen_ejecutivo)}</p>` : `<div class="hint">${pq.historica ? SIN_RESUMEN_HIST : SIN_RESUMEN}</div>`}
       ${!c || !Object.keys(qp).length ? `<div class="hint">Cantidades no disponibles${c ? " (anexo " + esc(String(c.estado || "").replace("_", " ")) + ")" : ""}.</div>` : ""}
       <h3>Productos</h3>
       <div class="prods">${nums.map(n => tarjetaProducto(n, qp[String(n)], rmap[n], exp, (c && c.archivos) || [],
