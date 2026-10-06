@@ -79,18 +79,12 @@
 let DATA=[], view=[], page=1, order="anio", asc=false, rows=30, CURVAS=null, BOLSA_RES=null;
 const ESTADOS=[["abi","Abierta","Abiertas"],["adj","Cerrada y adjudicada","Cerradas adjudicadas"],["des","Cerrada y desierta","Desiertas"],["can","Cancelada","Canceladas"]];
 const selE=new Set(), selA=new Set(), selC=new Set(), selD=new Set();
-// Tipo de curva según la forma del día ordinario en el anexo (data/curvas.json): plana 24 h, solar (solo horas de sol,
-// H6–H19), punta (solo tarde-noche, desde H17), variable (perfil de demanda) o sin curva (fuera del alcance de pliegos).
-const CURVA_TXT={plana:"Plana 24 h",solar:"Solar (diurna)",punta:"Punta (noche)",variable:"Variable (perfil)",sin:"Sin curva"};
-function tipoCurva(v){
-  if(!Array.isArray(v)||v.length!==24)return "sin";
-  const act=v.map((x,h)=>x>1e-9?h:-1).filter(h=>h>=0);
-  if(!act.length)return "sin";
-  if(act.length===24){const mx=Math.max(...v),mn=Math.min(...v);return mx-mn<=0.01*mx?"plana":"variable";}
-  if(act[0]>=5&&act[act.length-1]<=18)return "solar";
-  if(act[0]>=16)return "punta";
-  return "variable";
-}
+// Tipo de curva de cada producto (data/curva_tipo.json, de exportar_web.py): forma del día ordinario en el anexo del
+// pliego — plana 24 h, solar (solo H6–H19), punta (solo desde H17), variable — o, si no hay curva, por qué no la hay.
+const CURVA_TXT={plana:"Plana 24 h",solar:"Solar (diurna)",punta:"Punta (noche)",variable:"Variable (perfil)",
+  anexo:"Sin curva: anexo no leído",pliego:"Sin curva: pliego no procesado"};
+const CURVA_TIP={anexo:"El pliego se procesó, pero su anexo no trae la curva de este producto o no se pudo leer. Tiene su energía de SICEP, pero no su forma hora a hora.",
+  pliego:"El pliego de esta convocatoria no se procesó (canceladas, sin archivos en SICEP o fuera del alcance). Tiene su energía de SICEP, pero no su forma hora a hora."};
 // Duración del contrato en años (anios_contrato de SICEP).
 const DURACION=[["d0","< 1 año",a=>a<0.95],["d1","1 año",a=>a>=0.95&&a<=1.05],["d13","1–3 años",a=>a>1.05&&a<=3],
   ["d35","3–5 años",a=>a>3&&a<=5],["d510","5–10 años",a=>a>5&&a<=10],["d10","> 10 años",a=>a>10]];
@@ -162,7 +156,7 @@ function render(p){
     <td>${esc(c.agente_comprador??"")}</td>
     <td class="num">${n(c.energia_demandada_gwh)}</td><td class="num">${n(c.energia_adjudicada_gwh)}</td>
     <td class="num">${c.precio_prom_adjudicado>0?n(c.precio_prom_adjudicado):"—"}</td><td class="num">${esc(c.anios_contrato??"—")}</td>
-    <td>${c._curva==="sin"?'<span class="na">—</span>':esc(CURVA_TXT[c._curva])}</td>
+    <td>${CURVA_TIP[c._curva]?`<span class="na" title="${esc(CURVA_TIP[c._curva])}">${c._curva==="anexo"?"anexo no leído":"pliego no procesado"}</span>`:esc(CURVA_TXT[c._curva]||"—")}</td>
     <td>${esc(yr(c.inicio_obligacion))}–${esc(yr(c.fin_obligacion))}</td>
     <td>${esc(c.tipo_contrato||"—")}</td>
     <td class="num">${esc(c.ofertas_recibidas??"—")}/${esc(c.ofertas_adjudicadas??"—")}</td></tr>`).join("");
@@ -176,9 +170,9 @@ let tq=null;
 $("q").addEventListener("input",()=>{clearTimeout(tq);tq=setTimeout(aplicar,250)});
 ["agente","mercado","adj"].forEach(i=>$(i).addEventListener("change",aplicar));
 const json=u=>fetch(u).then(r=>r.ok?r.json():null).catch(()=>null);
-const pCurvas=json("data/curvas.json"), pBolsa=json("data/bolsa_resumen.json");
-Promise.all([fetch("data/productos.json").then(r=>r.json()),pCurvas,pBolsa]).then(([d,cu,br])=>{DATA=d;CURVAS=cu;BOLSA_RES=br;
-  d.forEach(r=>{r._curva=tipoCurva((cu||{})[r.producto]);});
+const pCurvas=json("data/curvas.json"), pBolsa=json("data/bolsa_resumen.json"), pTipos=json("data/curva_tipo.json");
+Promise.all([fetch("data/productos.json").then(r=>r.json()),pCurvas,pBolsa,pTipos]).then(([d,cu,br,ti])=>{DATA=d;CURVAS=cu;BOLSA_RES=br;
+  d.forEach(r=>{r._curva=(ti||{})[r.producto]||"pliego";});
   opts($("agente"),[...new Set(d.map(r=>r.agente_comprador))]);
   opts($("mercado"),[...new Set(d.map(r=>r.mercado))]);
   deUrl();
@@ -186,6 +180,7 @@ Promise.all([fetch("data/productos.json").then(r=>r.json()),pCurvas,pBolsa]).the
   chips("chips-a",[...new Set(d.map(r=>r.anio).filter(a=>a!=null&&+a>=2020).map(String))].sort().map(a=>[a,a]),selA);
   const cuenta=k=>d.filter(r=>r._curva===k).length;
   chips("chips-c",Object.keys(CURVA_TXT).filter(k=>cuenta(k)).map(k=>[k,`${CURVA_TXT[k]} (${cuenta(k).toLocaleString("es")})`]),selC);
+  $("chips-c").querySelectorAll("button").forEach(b=>{if(CURVA_TIP[b.dataset.v])b.title=CURVA_TIP[b.dataset.v];});
   chips("chips-d",DURACION.filter(([k])=>d.some(r=>duracion(r.anios_contrato)===k)).map(([k,t])=>[k,t]),selD);
   [[selE,"chips-e"],[selA,"chips-a"],[selC,"chips-c"],[selD,"chips-d"]].forEach(([s,id])=>[...s].forEach(v=>{if(!$(id).querySelector(`button[data-v="${CSS.escape(v)}"]`))s.delete(v);}));
   aplicar();}).catch(()=>{$("count").textContent="No se pudieron cargar los datos.";});
