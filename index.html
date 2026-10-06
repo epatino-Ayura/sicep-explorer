@@ -25,6 +25,7 @@
   .chips .fl{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;min-width:52px}
   .chips button{border:1px solid var(--line);background:var(--surface);color:inherit;border-radius:999px;padding:4px 12px;font-weight:500;font-size:13px}
   .na{color:var(--muted)}
+  [hidden]{display:none!important}
   .chips button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
   #panel{margin-top:6px}
   #panel .tb .graficos{grid-template-columns:repeat(auto-fit,minmax(min(520px,100%),1fr))}
@@ -56,6 +57,7 @@
     <div class="f"><label for="agente">Agente comprador</label><select id="agente"><option value="">Todos</option></select></div>
     <div class="f"><label for="mercado">Mercado</label><select id="mercado"><option value="">Todos</option></select></div>
     <div class="f chk"><input type="checkbox" id="adj"><label for="adj">Solo adjudicados</label></div>
+    <div class="f chk" id="f-sc" hidden><input type="checkbox" id="sc"><label for="sc" title="Productos con energía y precio de SICEP pero sin forma hora a hora (anexo no leído o pliego no procesado). Por defecto no se muestran ni cuentan en las cifras y gráficas.">Incluir productos sin curva <span id="n-sc"></span></label></div>
     <button class="ghost" onclick="limpiar()">Limpiar</button>
   </div>
   <div id="panel"></div>
@@ -79,6 +81,9 @@
 let DATA=[], view=[], page=1, order="anio", asc=false, rows=30, CURVAS=null, BOLSA_RES=null;
 const ESTADOS=[["abi","Abierta","Abiertas"],["adj","Cerrada y adjudicada","Cerradas adjudicadas"],["des","Cerrada y desierta","Desiertas"],["can","Cancelada","Canceladas"]];
 const selE=new Set(), selA=new Set(), selC=new Set(), selD=new Set();
+let TIPOS=null;   // data/curva_tipo.json; sin él no se oculta nada
+const SIN_CURVA=new Set(["anexo","pliego"]);
+const sinCurvaOculta=()=>TIPOS&&!$("sc").checked;
 // Tipo de curva de cada producto (data/curva_tipo.json, de exportar_web.py): forma del día ordinario en el anexo del
 // pliego — plana 24 h, solar (solo H6–H19), punta (solo desde H17), variable — o, si no hay curva, por qué no la hay.
 const CURVA_TXT={plana:"Plana 24 h",solar:"Solar (diurna)",punta:"Punta (noche)",variable:"Variable (perfil)",
@@ -113,6 +118,7 @@ function filtrar(){
     if(ag&&r.agente_comprador!==ag)return false;
     if(m&&r.mercado!==m)return false;
     if(adj&&r.energia_adjudicada_gwh==null)return false;
+    if(sinCurvaOculta()&&SIN_CURVA.has(r._curva))return false;
     if(selC.size&&!selC.has(r._curva))return false;
     if(selD.size&&!selD.has(duracion(r.anios_contrato)))return false;
     return true;});
@@ -127,6 +133,7 @@ function aUrl(){
   U.selAUrl(null,"q",$("q").value.trim()?[$("q").value.trim()]:[]);
   U.selAUrl(null,"sa",$("adj").checked?["1"]:[]);
   U.selAUrl(null,"c",Object.keys(CURVA_TXT).filter(k=>selC.has(k)));
+  U.selAUrl(null,"sc",$("sc").checked?["1"]:[]);
   U.selAUrl(null,"d",DURACION.map(d=>d[0]).filter(k=>selD.has(k)));
 }
 function deUrl(){
@@ -135,9 +142,15 @@ function deUrl(){
   lista("c").forEach(v=>selC.add(v));lista("d").forEach(v=>selD.add(v));
   const pon=(id,v)=>{if(v&&[...$(id).options].some(o=>o.value===v))$(id).value=v;};
   pon("agente",u.get("ag"));pon("mercado",u.get("m"));
-  $("q").value=u.get("q")||"";$("adj").checked=u.get("sa")==="1";
+  $("q").value=u.get("q")||"";$("adj").checked=u.get("sa")==="1";$("sc").checked=u.get("sc")==="1";
+}
+// Los botones "Sin curva" solo se muestran cuando se incluyen esos productos.
+function verChipsSinCurva(){
+  const oc=sinCurvaOculta();
+  $("chips-c").querySelectorAll("button").forEach(b=>{if(SIN_CURVA.has(b.dataset.v)){b.hidden=oc;if(oc){selC.delete(b.dataset.v);b.setAttribute("aria-pressed","false");}}});
 }
 function aplicar(){
+  verChipsSinCurva();
   view=filtrar();aUrl();
   try{if(window.renderPanel)renderPanel($("panel"),{productos:view,curvas:CURVAS,bolsaResumen:BOLSA_RES,base:"data/"});}catch(e){console.error(e);}
   render(1);
@@ -164,15 +177,17 @@ function render(p){
 }
 function mover(d){const pg=Math.ceil(view.length/rows);page=Math.min(Math.max(1,page+d),pg||1);render(page)}
 function sort(c){if(order===c)asc=!asc;else{order=c;asc=false}render(1)}
-function limpiar(){$("q").value="";["agente","mercado"].forEach(i=>$(i).value="");$("adj").checked=false;
+function limpiar(){$("q").value="";["agente","mercado"].forEach(i=>$(i).value="");$("adj").checked=false;$("sc").checked=false;
   selE.clear();selA.clear();selC.clear();selD.clear();document.querySelectorAll(".chips button").forEach(b=>b.setAttribute("aria-pressed","false"));aplicar()}
 let tq=null;
 $("q").addEventListener("input",()=>{clearTimeout(tq);tq=setTimeout(aplicar,250)});
-["agente","mercado","adj"].forEach(i=>$(i).addEventListener("change",aplicar));
+["agente","mercado","adj","sc"].forEach(i=>$(i).addEventListener("change",aplicar));
 const json=u=>fetch(u).then(r=>r.ok?r.json():null).catch(()=>null);
 const pCurvas=json("data/curvas.json"), pBolsa=json("data/bolsa_resumen.json"), pTipos=json("data/curva_tipo.json");
 Promise.all([fetch("data/productos.json").then(r=>r.json()),pCurvas,pBolsa,pTipos]).then(([d,cu,br,ti])=>{DATA=d;CURVAS=cu;BOLSA_RES=br;
+  TIPOS=ti;
   d.forEach(r=>{r._curva=(ti||{})[r.producto]||"pliego";});
+  if(ti){const n=d.filter(r=>SIN_CURVA.has(r._curva)).length;$("n-sc").textContent=`(${n.toLocaleString("es")})`;$("f-sc").hidden=!n;}
   opts($("agente"),[...new Set(d.map(r=>r.agente_comprador))]);
   opts($("mercado"),[...new Set(d.map(r=>r.mercado))]);
   deUrl();
