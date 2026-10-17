@@ -43,6 +43,10 @@
   .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:11px;font-weight:600}
   .st-adj{background:#e4f3ea;color:var(--ok)}.st-des{background:#fbeed7;color:var(--warn)}
   .st-can{background:#fbe6e4;color:var(--crit)}.st-abi{background:#e3eefb;color:var(--info)}
+  tr.g{cursor:pointer}tr.g td:first-child{padding-left:4px}
+  .tg{display:inline-block;width:18px;color:var(--muted);transition:transform .15s}tr.g.open .tg{transform:rotate(90deg)}
+  tr.p td{background:#f8f9fb;font-size:12.5px}tr.p td:first-child{border-left:3px solid #c9d9ec}
+  .nprod{color:var(--muted)}
   .pag{display:flex;gap:8px;align-items:center;justify-content:center;margin:14px 0}
 </style></head>
 <body>
@@ -53,6 +57,8 @@
   <div class="chips" id="chips-a" role="group" aria-label="Año"><span class="fl">Año</span></div>
   <div class="chips" id="chips-c" role="group" aria-label="Tipo de curva"><span class="fl" title="Forma de la demanda horaria según el anexo del pliego (convocatorias 2025–2026 y abiertas)">Curva</span></div>
   <div class="chips" id="chips-d" role="group" aria-label="Duración del contrato"><span class="fl">Duración</span></div>
+  <div class="chips" id="chips-v" role="group" aria-label="Vista de la tabla"><span class="fl">Ver</span>
+    <button type="button" data-v="c" aria-pressed="true">Por convocatoria</button><button type="button" data-v="p" aria-pressed="false">Por producto</button></div>
   <div class="filtros">
     <div class="f"><label for="q">Buscar</label><input id="q" type="search" placeholder="convocatoria, agente, producto…"></div>
     <div class="f"><label for="agente">Agente comprador</label><select id="agente"><option value="">Todos</option></select></div>
@@ -62,7 +68,7 @@
     <button class="ghost" onclick="limpiar()">Limpiar</button>
   </div>
   <div id="panel"></div>
-  <div class="count" id="count">Cargando datos…</div>
+  <div class="count"><span id="count">Cargando datos…</span><span id="count-c"></span></div>
   <div style="overflow-x:auto"><table>
     <thead><tr>
       <th onclick="sort('convocatoria')">Convocatoria</th><th>Producto</th>
@@ -80,6 +86,8 @@
 <script src="panel.js"></script>
 <script>
 let DATA=[], view=[], page=1, order="anio", asc=false, rows=30, CURVAS=null, BOLSA_RES=null;
+let vista="c";             // "c": una fila por convocatoria (sus productos se despliegan); "p": una fila por producto
+const abiertas=new Set();  // convocatorias desplegadas en la vista por convocatoria
 const ESTADOS=[["abi","Abierta","Abiertas"],["adj","Cerrada y adjudicada","Cerradas adjudicadas"],["des","Cerrada y desierta","Desiertas"],["can","Cancelada","Canceladas"]];
 const selE=new Set(), selA=new Set(), selC=new Set(), selD=new Set();
 let TIPOS=null;   // data/curva_tipo.json; sin él no se oculta nada
@@ -138,6 +146,7 @@ function aUrl(){
   U.selAUrl(null,"c",Object.keys(CURVA_TXT).filter(k=>selC.has(k)));
   U.selAUrl(null,"sc",$("sc").checked?["1"]:[]);
   U.selAUrl(null,"d",DURACION.map(d=>d[0]).filter(k=>selD.has(k)));
+  U.selAUrl(null,"v",vista==="p"?["p"]:[]);
 }
 function deUrl(){
   const u=new URLSearchParams(location.search),lista=k=>(u.get(k)||"").split(",").filter(Boolean);
@@ -146,7 +155,10 @@ function deUrl(){
   const pon=(id,v)=>{if(v&&[...$(id).options].some(o=>o.value===v))$(id).value=v;};
   pon("agente",u.get("ag"));pon("mercado",u.get("m"));
   $("q").value=u.get("q")||"";$("adj").checked=u.get("sa")==="1";$("sc").checked=u.get("sc")==="1";
+  ponVista(u.get("v")==="p"?"p":"c");
 }
+function ponVista(v){vista=v;$("chips-v").querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.v===v));}
+$("chips-v").onclick=ev=>{const b=ev.target.closest("button");if(!b||b.dataset.v===vista)return;ponVista(b.dataset.v);aUrl();render(1);};
 // Los botones "Sin curva" solo se muestran cuando se incluyen esos productos.
 function verChipsSinCurva(){
   const oc=sinCurvaOculta();
@@ -172,30 +184,57 @@ function aplicar(){
   try{if(window.renderPanel)renderPanel($("panel"),{productos:view,curvas:CURVAS,bolsaResumen:BOLSA_RES,base:"data/"});}catch(e){console.error(e);}
   render(1);
 }
-function render(p){
-  page=p||page;
-  view.sort((x,y)=>{let vx=x[order],vy=y[order];vx=vx==null?-Infinity:vx;vy=vy==null?-Infinity:vy;
-    if(typeof vx==="string")return asc?String(vx).localeCompare(vy):String(vy).localeCompare(vx);
-    return asc?vx-vy:vy-vx;});
-  $("count").textContent=`${view.length.toLocaleString("es")} producto${view.length===1?"":"s"}`;
-  const off=(page-1)*rows, pg=view.slice(off,off+rows);
-  $("tb").innerHTML=pg.map(c=>`<tr>
-    <td><a class="conv" href="ficha.html?c=${encodeURIComponent(c.convocatoria)}">${esc(c.convocatoria)}</a></td>
-    <td>${esc((c.producto||"").split("-").pop())}</td><td>${esc(c.anio??"")}</td>
+const unico=(xs,varios)=>{const u=[...new Set(xs.filter(x=>x!=null&&x!==""))];return u.length>1?varios:u[0];};
+const suma=xs=>{const v=xs.filter(x=>x!=null);return v.length?v.reduce((a,b)=>a+b,0):null;};
+// Una fila por convocatoria con los productos que pasan los filtros: energías sumadas, precio ponderado por la energía
+// adjudicada (sin precios 0), años y suministro como rango, y curva / tipo de contrato si todos coinciden.
+function agrupar(ps){
+  const m=new Map();ps.forEach(r=>{if(!m.has(r.convocatoria))m.set(r.convocatoria,[]);m.get(r.convocatoria).push(r);});
+  return [...m].map(([conv,pr])=>{
+    const f=pr[0],con=pr.filter(r=>r.precio_prom_adjudicado>0&&r.energia_adjudicada_gwh>0);
+    const ea=suma(con.map(r=>r.energia_adjudicada_gwh)),an=pr.map(r=>r.anios_contrato).filter(x=>x!=null&&x!=="").map(Number);
+    const ini=pr.map(r=>r.inicio_obligacion).filter(Boolean).sort(),fin=pr.map(r=>r.fin_obligacion).filter(Boolean).sort();
+    pr.sort((x,y)=>String(x.producto).localeCompare(String(y.producto)));
+    return {convocatoria:conv,productos:pr,anio:f.anio,estado:f.estado,agente_comprador:f.agente_comprador,
+      energia_demandada_gwh:suma(pr.map(r=>r.energia_demandada_gwh)),energia_adjudicada_gwh:suma(pr.map(r=>r.energia_adjudicada_gwh)),
+      precio_prom_adjudicado:ea?con.reduce((a,r)=>a+r.precio_prom_adjudicado*r.energia_adjudicada_gwh,0)/ea:null,
+      anios_contrato:an.length?Math.max(...an):null,_anios:an.length?(Math.min(...an)===Math.max(...an)?an[0]:`${Math.min(...an)}–${Math.max(...an)}`):null,
+      _curva:unico(pr.map(r=>r._curva),"mixta"),inicio_obligacion:ini[0],fin_obligacion:fin[fin.length-1],
+      tipo_contrato:unico(pr.map(r=>r.tipo_contrato),"Varios"),
+      ofertas_recibidas:suma(pr.map(r=>r.ofertas_recibidas)),ofertas_adjudicadas:suma(pr.map(r=>r.ofertas_adjudicadas))};});
+}
+function celdas(c,primera){return `<td>${primera}</td>
+    <td>${c.productos?`<span class="nprod">${c.productos.length} prod.</span>`:esc((c.producto||"").split("-").pop())}</td><td>${esc(c.anio??"")}</td>
     <td><span class="pill ${stCls(c.estado)}">${esc((c.estado||"").replace("Cerrada y ",""))}</span></td>
     <td>${esc(c.agente_comprador??"")}</td>
     <td class="num">${n(c.energia_demandada_gwh)}</td><td class="num">${n(c.energia_adjudicada_gwh)}</td>
-    <td class="num">${c.precio_prom_adjudicado>0?n(c.precio_prom_adjudicado):"—"}</td><td class="num">${esc(c.anios_contrato??"—")}</td>
-    <td>${CURVA_TIP[c._curva]?`<span class="na" title="${esc(CURVA_TIP[c._curva])}">${c._curva==="anexo"?"anexo no leído":"pliego no procesado"}</span>`:esc(CURVA_TXT[c._curva]||"—")}</td>
+    <td class="num">${c.precio_prom_adjudicado>0?n(c.precio_prom_adjudicado):"—"}</td><td class="num">${esc((c.productos?c._anios:c.anios_contrato)??"—")}</td>
+    <td>${CURVA_TIP[c._curva]?`<span class="na" title="${esc(CURVA_TIP[c._curva])}">${c._curva==="anexo"?"anexo no leído":"pliego no procesado"}</span>`:esc(c._curva==="mixta"?"Varias":CURVA_TXT[c._curva]||"—")}</td>
     <td>${esc(yr(c.inicio_obligacion))}–${esc(yr(c.fin_obligacion))}</td>
     <td>${esc(c.tipo_contrato||"—")}</td>
-    <td class="num">${esc(c.ofertas_recibidas??"—")}/${esc(c.ofertas_adjudicadas??"—")}</td></tr>`).join("");
-  $("pageinfo").textContent=`Página ${page} de ${Math.max(1,Math.ceil(view.length/rows))}`;
+    <td class="num">${esc(c.ofertas_recibidas??"—")}/${esc(c.ofertas_adjudicadas??"—")}</td>`;}
+const enlace=c=>`<a class="conv" href="ficha.html?c=${encodeURIComponent(c)}">${esc(c)}</a>`;
+function render(p){
+  page=p||page;
+  const filas=vista==="c"?agrupar(view):view;
+  filas.sort((x,y)=>{let vx=x[order],vy=y[order];vx=vx==null?-Infinity:vx;vy=vy==null?-Infinity:vy;
+    if(typeof vx==="string")return asc?String(vx).localeCompare(vy):String(vy).localeCompare(vx);
+    return asc?vx-vy:vy-vx;});
+  $("count").textContent=`${view.length.toLocaleString("es")} producto${view.length===1?"":"s"}`;
+  $("count-c").textContent=vista==="c"?` en ${filas.length.toLocaleString("es")} convocatoria${filas.length===1?"":"s"}`:"";
+  const off=(page-1)*rows, pg=filas.slice(off,off+rows);
+  $("tb").innerHTML=vista==="p"?pg.map(c=>`<tr>${celdas(c,enlace(c.convocatoria))}</tr>`).join(""):
+    pg.map(g=>{const ab=abiertas.has(g.convocatoria);
+      return `<tr class="g${ab?" open":""}" data-c="${esc(g.convocatoria)}" aria-expanded="${ab}">${celdas(g,`<span class="tg">▸</span>${enlace(g.convocatoria)}`)}</tr>`+
+        (ab?g.productos.map(c=>`<tr class="p">${celdas(c,"")}</tr>`).join(""):"");}).join("");
+  $("pageinfo").textContent=`Página ${page} de ${Math.max(1,Math.ceil(filas.length/rows))}`;
 }
-function mover(d){const pg=Math.ceil(view.length/rows);page=Math.min(Math.max(1,page+d),pg||1);render(page)}
+$("tb").addEventListener("click",ev=>{const tr=ev.target.closest("tr.g");if(!tr||ev.target.closest("a"))return;
+  const c=tr.dataset.c;abiertas.has(c)?abiertas.delete(c):abiertas.add(c);render(page);});
+function mover(d){const pg=Math.ceil((vista==="c"?new Set(view.map(r=>r.convocatoria)).size:view.length)/rows);page=Math.min(Math.max(1,page+d),pg||1);render(page)}
 function sort(c){if(order===c)asc=!asc;else{order=c;asc=false}render(1)}
 function limpiar(){$("q").value="";["agente","mercado"].forEach(i=>$(i).value="");$("adj").checked=false;$("sc").checked=false;
-  selE.clear();selA.clear();selC.clear();selD.clear();document.querySelectorAll(".chips button").forEach(b=>b.setAttribute("aria-pressed","false"));aplicar()}
+  selE.clear();selA.clear();selC.clear();selD.clear();document.querySelectorAll(".chips button").forEach(b=>b.setAttribute("aria-pressed","false"));ponVista(vista);aplicar()}
 let tq=null;
 $("q").addEventListener("input",()=>{clearTimeout(tq);tq=setTimeout(aplicar,250)});
 ["agente","mercado","adj","sc"].forEach(i=>$(i).addEventListener("change",aplicar));
